@@ -11,7 +11,7 @@ export class GitHubAPI {
     this.client = axios.create({
       baseURL: "https://api.github.com",
       headers: {
-        Authorization: `Bearer ${GITHUB_TOKEN}`,
+        Authorization: `token ${GITHUB_TOKEN}`,
         "User-Agent": "IssueWatcher-MCP",
       },
     });
@@ -38,10 +38,23 @@ export class GitHubAPI {
   async getIssues(owner:string, repo:string): Promise<any[]>{
     try{
         const response= await this.client.get(`/repos/${owner}/${repo}/issues`);
-        return response.data;
+        const simplified= response.data.map((issue:any) => ({
+           id: issue.id,
+           number: issue.number,
+           title: issue.title,
+           url: issue.html_url,
+           state: issue.state,
+           createdAt: issue.created_at,
+           user: issue.user?.login
+        }))
+
+         return simplified;
+         
     } catch(err){
         console.error("Error fetching starred repos:", err);
         return [];
     }
   }
+
+  
 } 
