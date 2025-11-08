@@ -38,7 +38,10 @@ export class GitHubAPI {
   async getIssues(owner:string, repo:string): Promise<any[]>{
     try{
         const response= await this.client.get(`/repos/${owner}/${repo}/issues`);
-        const simplified= response.data.map((issue:any) => ({
+        const simplified= response.data
+        .filter((issue: any) => !issue.pull_request)
+        .filter((issue: any) => issue.state==="open")
+        .map((issue:any) => ({
            id: issue.id,
            number: issue.number,
            title: issue.title,

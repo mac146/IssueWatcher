@@ -4,4 +4,4 @@ build/
 .DS_Store
 .env
 data/lastIssue.json
-mcp-server/src/data/
+src/data/
