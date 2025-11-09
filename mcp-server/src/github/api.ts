@@ -1,5 +1,6 @@
 import axios, {AxiosInstance} from "axios";
-import { env } from "process";
+import dotenv from "dotenv";
+dotenv.config()
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN || "";
 
 export class GitHubAPI {
@@ -11,7 +12,7 @@ export class GitHubAPI {
     this.client = axios.create({
       baseURL: "https://api.github.com",
       headers: {
-        Authorization: `token ${GITHUB_TOKEN}`,
+        Authorization: `Bearer ${GITHUB_TOKEN}`,
         "User-Agent": "IssueWatcher-MCP",
       },
     });

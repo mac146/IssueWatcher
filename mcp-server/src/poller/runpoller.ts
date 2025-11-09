@@ -1,7 +1,7 @@
 import dotenv from "dotenv";
 dotenv.config();
 
-import { pollOnce } from "./poller";
+import { pollOnce } from "./poller.js";
 function startpolling(){
 pollOnce();
 setInterval(() =>{

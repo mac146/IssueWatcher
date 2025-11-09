@@ -1,13 +1,18 @@
 import dotenv from "dotenv";
 dotenv.config();
 
-//import { GitHubAPI } from "./github/api";
-import { pollOnce } from "./poller/poller";
+import {run} from "./llm/summarizer.js"
 
-function startpolling(){
-pollOnce();
-setInterval(() =>{
-    pollOnce();
+
+import { GitHubAPI } from "./github/api.js";
+import { pollOnce } from "./poller/poller.js";
+
+async function startpolling(){
+await pollOnce();
+await run();
+setInterval(async () =>{
+    await  pollOnce();
+    await run();
 }, 1800000);
 }
 
@@ -16,3 +21,5 @@ async function main () {
 };
 
 main();
+
+console.log("Token:", process.env.GITHUB_TOKEN);

@@ -1,6 +1,6 @@
-import { GitHubAPI } from "../github/api";
-import { loadState, saveState } from "../utils/state";
-
+import { GitHubAPI } from "../github/api.js";
+import { loadState, saveState } from "../utils/state.js";
+import { Issue } from "./types.js";
 export async function pollOnce(){
     
 const github=new GitHubAPI();
@@ -8,6 +8,8 @@ const github=new GitHubAPI();
 const state= loadState();
 
 const starredrepos=await github.getStarredRepos();
+
+const allNewIssues : Issue[]=[];
 
 for ( const repo of starredrepos){
     const owner= repo.owner;
@@ -26,11 +28,23 @@ for ( const repo of starredrepos){
       newIssueNumbers.forEach(num => {
         const issue = issues.find(i => i.number === num);
         console.log(`- Issue #${issue.number} by @${issue.user}: ${issue.title}`);
+
+        allNewIssues.push({
+        repo: `${owner}/${name}`,
+        number: issue.number,
+        title: issue.title,
+        body: issue.body,
+        user: issue.user,
+        url: issue.html_url,
+        labels: issue.labels
+       });
       });
     }
 
     state[key] = currentIssueNumbers;
 }
 saveState(state);
+
+return allNewIssues;
 
 }
