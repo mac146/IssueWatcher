@@ -22,4 +22,4 @@ async function main () {
 
 main();
 
-console.log("Token:", process.env.GITHUB_TOKEN);
+

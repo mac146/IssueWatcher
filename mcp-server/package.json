@@ -18,10 +18,12 @@
     "@google/genai": "^1.29.0",
     "@google/generative-ai": "^0.24.1",
     "axios": "^1.13.2",
-    "dotenv": "^17.2.3"
+    "dotenv": "^17.2.3",
+    "nodemailer": "^7.0.10"
   },
   "devDependencies": {
     "@types/node": "^24.10.0",
+    "@types/nodemailer": "^7.0.3",
     "eslint": "^9.39.1",
     "prettier": "^3.6.2",
     "ts-node": "^10.9.2",
