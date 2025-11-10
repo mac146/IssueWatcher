@@ -33,7 +33,7 @@ for ( const repo of starredrepos){
         repo: `${owner}/${name}`,
         number: issue.number,
         title: issue.title,
-        body: issue.body,
+        body: issue.body ?? "",
         user: issue.user,
         url: issue.html_url,
         labels: issue.labels

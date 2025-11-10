@@ -45,6 +45,7 @@ export class GitHubAPI {
         .map((issue:any) => ({
            id: issue.id,
            number: issue.number,
+           body: issue.body ?? "",
            title: issue.title,
            url: issue.html_url,
            state: issue.state,
