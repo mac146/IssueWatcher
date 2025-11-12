@@ -38,7 +38,7 @@ Any MCP-compatible LLM (OpenAI, Anthropic, etc.)
 Custom prompt templates for summaries + fixes
 
 📦 Installation
-git clone https://github.com/your-username/issuewatcher
+git clone https://github.com/mac146/IssueWatcher
 cd issuewatcher
 npm install
 
