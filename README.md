@@ -60,12 +60,8 @@ WATCH_INTERVAL is milliseconds (default 5 min).
 
 Start the MCP server:
 
-npm run dev
+node --loader ts-node/esm src/index.ts
 
-
-Run the watcher:
-
-node watcher.js
 
 📬 What the Emails Look Like
 
