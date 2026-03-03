@@ -27,6 +27,9 @@ for ( const repo of starredrepos){
 
       newIssueNumbers.forEach(num => {
         const issue = issues.find(i => i.number === num);
+        if (!issue) {
+          return;
+        }
         console.log(`- Issue #${issue.number} by @${issue.user}: ${issue.title}`);
 
         allNewIssues.push({
@@ -35,8 +38,8 @@ for ( const repo of starredrepos){
         title: issue.title,
         body: issue.body ?? "",
         user: issue.user,
-        url: issue.html_url,
-        labels: issue.labels
+        url: issue.url,
+        labels: issue.labels ?? []
        });
       });
     }

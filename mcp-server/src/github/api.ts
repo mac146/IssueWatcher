@@ -3,6 +3,18 @@ import dotenv from "dotenv";
 dotenv.config()
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN || "";
 
+type GitHubIssue = {
+  id: number;
+  number: number;
+  body: string;
+  title: string;
+  url: string;
+  state: string;
+  createdAt: string;
+  user: string;
+  labels: string[];
+};
+
 export class GitHubAPI {
   private client: AxiosInstance;
 
@@ -36,7 +48,7 @@ export class GitHubAPI {
     }
   }
 
-  async getIssues(owner:string, repo:string): Promise<any[]>{
+  async getIssues(owner:string, repo:string): Promise<GitHubIssue[]>{
     try{
         const response= await this.client.get(`/repos/${owner}/${repo}/issues`);
         const simplified= response.data
@@ -50,7 +62,8 @@ export class GitHubAPI {
            url: issue.html_url,
            state: issue.state,
            createdAt: issue.created_at,
-           user: issue.user?.login
+           user: issue.user?.login ?? "unknown",
+           labels: (issue.labels ?? []).map((label: any) => label.name).filter(Boolean)
         }))
 
          return simplified;

@@ -2,25 +2,23 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { pollOnce } from "../poller/poller.js";
 import { sendEmail } from "../mail/mailer.js";
+import { Issue } from "../poller/types.js";
 
 const apiKey = process.env.GOOGLE_API_KEY;
 if (!apiKey) throw new Error("GOOGLE_API_KEY is missing in .env file");
 
 const genAI = new GoogleGenerativeAI(apiKey);
 
-export async function run() {
-  const newissues = await pollOnce();
-
-  if (!newissues.length) {
+export async function run(newIssues: Issue[]) {
+  if (!newIssues.length) {
     console.log("No new issues.");
     return;
   }
 
   const summaries: { issue: string; summary: string }[] = [];
 
-  for (const issue of newissues) {
+  for (const issue of newIssues) {
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     const result = await model.generateContent(
@@ -52,7 +50,3 @@ export async function run() {
 
     console.log("✅ Email sent with all new issues");
 }
-
-
-
-run();
