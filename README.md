@@ -1,85 +1,86 @@
-IssueWatcher — Smart GitHub Issue Notifier (MCP Powered)
+# IssueWatcher (Student Project)
 
-IssueWatcher is an automation tool that monitors your starred GitHub repositories, detects new issues, and sends you AI-powered summaries + proposed fixes directly to your inbox.
-Built using Model Context Protocol (MCP), it acts like your personal GitHub assistant.
+This is a student project that watches your starred GitHub repositories, pulls new issues, and emails short AI summaries with possible fix ideas.
 
-✅ Features
+## What it does
+- Scans issues from repos you have starred
+- Summarizes each issue in simple language
+- Suggests possible fixes
+- Emails a clean summary + link
 
-🔍 Automatic GitHub Issue Scanning
-Fetches new issues from all repositories you have starred.
+## Tech used
+- Node.js + TypeScript
+- MCP (Model Context Protocol)
+- GitHub REST API
+- Nodemailer
+- LLM providers supported by MCP
 
-🤖 LLM-Powered Summaries
-Uses an LLM to summarise each issue in simple language.
+## Folder layout
+- `mcp-server/` - backend service and scheduler
 
-🧠 Smart Fix Suggestions
-Generates potential fixes/approach ideas for each issue.
-
-✉️ Email Notifications
-Sends nicely formatted emails whenever a new issue appears.
-
-🪄 MCP Tooling
-Everything runs through MCP servers + tools for modular automation.
-
-🏗 Tech Stack
-Core
-
-Node.js (server + scheduler)
-
-MCP (Model Context Protocol)
-
-GitHub REST API
-
-Email Service (Nodemailer)
-
-AI
-
-Any MCP-compatible LLM (OpenAI, Anthropic, etc.)
-
-Custom prompt templates for summaries + fixes
-
-📦 Installation
+## Setup
+Clone the repo:
+```bash
 git clone https://github.com/mac146/IssueWatcher
-cd issuewatcher
+cd IssueWatcher
+```
+
+Install dependencies:
+```bash
+cd mcp-server
 npm install
+```
 
-🔧 Configuration
-
-Create a .env file:
-
+## Environment variables
+Create a `.env` file inside `mcp-server/`:
+```env
 GITHUB_TOKEN=your_github_pat
 EMAIL_HOST=smtp.example.com
 EMAIL_USER=your_email@example.com
 EMAIL_PASS=your_password
 LLM_API_KEY=your_llm_key
 WATCH_INTERVAL=300000
+```
 
+`WATCH_INTERVAL` is in milliseconds (default is 5 minutes).
 
-WATCH_INTERVAL is milliseconds (default 5 min).
+## Commands
+Run in `mcp-server/`:
 
-▶️ Running IssueWatcher
+Start dev server (hot reload):
+```bash
+npm run dev
+```
 
-Start the MCP server:
+Build TypeScript:
+```bash
+npm run build
+```
 
-node --loader ts-node/esm src/index.ts
+Start production build:
+```bash
+npm run start
+```
 
+Lint:
+```bash
+npm run lint
+```
 
-📬 What the Emails Look Like
+Format:
+```bash
+npm run format
+```
 
-Subject: New Issue in {repo}: {issue title}
-Body Includes:
+## Example email
+Subject: `New Issue in {repo}: {issue title}`
 
-✅ Issue summary (LLM generated)
+Body includes:
+- Issue summary (AI generated)
+- Fix suggestion
+- Direct GitHub issue link
 
-🔧 Steps or fix idea
+## Notes
+- This is for learning and portfolio use.
+- Add more sources (Reddit, HackerNews, Jira) as extensions if you want.
 
-🔗 Direct link to GitHub issue
-
-
-🤝 Contributing
-
-Pull requests are welcome!
-If you want to add more sources (Reddit, HackerNews, JIRA), open an issue.
-
-⭐ Support the Project
-
-If IssueWatcher helped you, give the repo a star — it motivates me to add more features!
