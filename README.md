@@ -1,6 +1,6 @@
-# IssueWatcher (Student Project)
+# IssueWatcher
 
-This is a student project that watches your starred GitHub repositories, pulls new issues, and emails short AI summaries with possible fix ideas.
+IssueWatcher is a service that monitors your starred GitHub repositories, detects new issues, and delivers concise AI summaries with potential fixes to your inbox.
 
 ## What it does
 - Scans issues from repos you have starred
@@ -81,6 +81,4 @@ Body includes:
 - Direct GitHub issue link
 
 ## Notes
-- This is for learning and portfolio use.
-- Add more sources (Reddit, HackerNews, Jira) as extensions if you want.
-
+- Extendable to additional sources (Reddit, HackerNews, Jira).
