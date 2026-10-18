@@ -16,6 +16,8 @@ export type Config = {
   maxIssuesPerEmail: number;
   maxBodyChars: number;
   llmConcurrency: number;
+  llmRequestsPerMinute: number;
+  llmBatchSize: number;
 };
 
 type Env = Record<string, string | undefined>;
@@ -73,6 +75,9 @@ export function loadConfig(env: Env = process.env): Config {
     maxIssuesPerEmail: int(env, "MAX_ISSUES_PER_EMAIL", 50, 1, errors),
     maxBodyChars: int(env, "MAX_BODY_CHARS", 4000, 100, errors),
     llmConcurrency: int(env, "LLM_CONCURRENCY", 3, 1, errors),
+    // Default matches Gemini's free tier; raise it if you have a paid key.
+    llmRequestsPerMinute: int(env, "LLM_RPM", 5, 1, errors),
+    llmBatchSize: int(env, "LLM_BATCH_SIZE", 8, 1, errors),
   };
 
   if (missing.length) errors.unshift(`Missing required env vars: ${missing.join(", ")}`);

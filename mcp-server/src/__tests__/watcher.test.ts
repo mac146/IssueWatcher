@@ -14,9 +14,9 @@ function setup(opts: { mailFails?: boolean; summaryFails?: boolean } = {}) {
   const deps: WatcherDeps = {
     source: fakeSource({ "a/b": [issue("a/b", 1), issue("a/b", 2), issue("a/b", 3)] }),
     summarizer: {
-      summarize: async () => {
+      summarizeBatch: async (issues) => {
         if (opts.summaryFails) throw new Error("llm down");
-        return "sum";
+        return issues.map(() => "sum");
       },
     },
     mailer: {
@@ -27,6 +27,7 @@ function setup(opts: { mailFails?: boolean; summaryFails?: boolean } = {}) {
     },
     store,
     concurrency: 2,
+    batchSize: 2,
     maxIssuesPerEmail: 10,
   };
   return { deps, sent, saved: () => saved };

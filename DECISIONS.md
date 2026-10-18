@@ -9,7 +9,7 @@ Status values: **Accepted**, **Superseded by D-xxx**, **Proposed** (needs the ow
 | D-001 | Persist "seen" state only after the digest is delivered | Accepted |
 | D-002 | Silently seed repos seen for the first time | Accepted |
 | D-003 | Failed per-repo fetches keep the previous state | Accepted |
-| D-004 | Summaries degrade to "no summary" instead of failing the digest | Accepted |
+| D-004 | Summaries degrade to "no summary" instead of failing the digest | Accepted (batching amended by D-015) |
 | D-005 | Gemini only, behind a `Summarizer` interface | Accepted |
 | D-006 | Built-in `node:test` and Node >= 22 | Accepted |
 | D-007 | Dependency-injected I/O, pure poll logic | Accepted |
@@ -20,6 +20,7 @@ Status values: **Accepted**, **Superseded by D-xxx**, **Proposed** (needs the ow
 | D-012 | Rename package; keep the `mcp-server/` folder for now | Accepted |
 | D-013 | Remove the "MCP" claim until a real MCP server exists | Accepted |
 | D-014 | Use `tsx` for the dev runner | Accepted |
+| D-015 | Batch issues per LLM request; rate limit; stop on exhausted quota | Accepted |
 
 ---
 
@@ -136,3 +137,25 @@ Status values: **Accepted**, **Superseded by D-xxx**, **Proposed** (needs the ow
 **Trade-off.** `tsx` transpiles without type-checking, same as the old `--transpile-only` flag. Type safety is enforced by `npm run typecheck` and CI.
 
 **Verified.** First real run (`RUN_ONCE=true`) against live GitHub: 15 starred repos seeded, 2,749 open issues tracked, with pagination confirmed (one repo has 1,169 open issues), no email sent, and a second run reports "No new issues". A second live run with one issue removed from state found it as new, summarised it, sent the digest, and saved state (the delivery guarantee in D-001 held).
+
+## D-015: Batch issues per LLM request, rate-limit, and stop on exhausted quota
+**Context.** D-004 chose one LLM request per issue and rejected batching. A live run with 34 new issues disproved that for the free tier: Gemini's free `gemini-2.5-flash` allows about 5 requests/minute and about 20 requests/day. Only 12 of 34 issues were summarised, 22 were emailed as "No AI summary available", and a rerun hit the daily cap (retry in ~15 hours). Retries cannot fix a daily quota, and the failed issues were already marked as seen, so they never get summaries.
+
+**Decision.**
+1. **Batching.** Send up to `LLM_BATCH_SIZE` (default 8) issues per request, using Gemini's JSON response schema. Results are keyed by a per-batch id (1..n), not by issue number, which can collide across repos. The app, not the model, formats the output ("Summary: / Possible fix:"), and validates every field.
+2. **Fallback.** If a batch fails or returns unusable JSON, retry its issues one by one. Entries the model skipped or garbled become "no summary" for that issue only.
+3. **Rate limiter.** `LLM_RPM` (default 5) spaces requests across all workers.
+4. **Retry that listens.** On HTTP 429, wait as long as the provider asks (parsed from "retry in 53s", including hours and minutes), up to 90 seconds.
+5. **Circuit breaker.** If the provider asks for a longer wait, throw `QuotaExhaustedError`. The cycle stops calling the LLM, logs one warning, and still sends the digest with whatever was summarised.
+
+**Why.** 34 issues now take 5 requests instead of 34, which fits the free tier and also reduces cost on paid plans. Failing fast on a daily quota avoids dozens of doomed calls.
+
+**Trade-offs.**
+- One bad response can affect up to 8 issues; the per-issue fallback limits the damage.
+- Prompt-injection blast radius within a batch is larger than per issue. Mitigations: issues are delimited and marked as untrusted data, output is schema-constrained, validated, and rendered as escaped text, and the model cannot trigger any action.
+- Summaries from a 8-issue batch may be slightly less detailed than a dedicated call.
+- Issues that end up without a summary are not retried in later cycles, because they are already marked as seen. Retrying them is a possible follow-up.
+
+**Verified live.** With `gemini-2.5-flash-lite`: 34 of 34 issues summarised in 5 requests, and the digest email was sent. `gemini-2.5-flash` was over its daily quota at the time, so batched mode has **not** been verified with that model yet. The default model stays `gemini-2.5-flash` for quality; set `GEMINI_MODEL=gemini-2.5-flash-lite` if you hit its quota. Summaries from flash-lite were noticeably shorter (average 367 characters, against about 700 from flash).
+
+**Revisit when** a paid key is used (raise `LLM_RPM` and batch size), or when per-user quotas are needed in the multi-user phase.

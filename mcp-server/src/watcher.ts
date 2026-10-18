@@ -15,6 +15,7 @@ export type WatcherDeps = {
   mailer: Mailer;
   store: StateStore;
   concurrency: number;
+  batchSize: number;
   maxIssuesPerEmail: number;
 };
 
@@ -35,6 +36,7 @@ export async function runCycle(deps: WatcherDeps): Promise<number> {
   logger.info(`Found ${newIssues.length} new issue(s)`);
   const items = await summarizeIssues(newIssues, deps.summarizer, {
     concurrency: deps.concurrency,
+    batchSize: deps.batchSize,
     limit: deps.maxIssuesPerEmail,
   });
   await deps.mailer.sendDigest(items);

@@ -1,6 +1,6 @@
 import { loadConfig } from "./config.js";
 import { GitHubAPI } from "./github/api.js";
-import { GeminiSummarizer } from "./llm/summarizer.js";
+import { GeminiSummarizer, RateLimiter } from "./llm/summarizer.js";
 import { logger } from "./logger.js";
 import { SmtpMailer } from "./mail/mailer.js";
 import { loadState, saveState } from "./utils/state.js";
@@ -11,13 +11,19 @@ async function main(): Promise<void> {
 
   const deps: WatcherDeps = {
     source: new GitHubAPI(config.githubToken),
-    summarizer: new GeminiSummarizer(config.googleApiKey, config.geminiModel, config.maxBodyChars),
+    summarizer: new GeminiSummarizer(
+      config.googleApiKey,
+      config.geminiModel,
+      config.maxBodyChars,
+      new RateLimiter(config.llmRequestsPerMinute),
+    ),
     mailer: new SmtpMailer(config),
     store: {
       load: () => loadState(config.stateFile),
       save: (state) => saveState(config.stateFile, state),
     },
     concurrency: config.llmConcurrency,
+    batchSize: config.llmBatchSize,
     maxIssuesPerEmail: config.maxIssuesPerEmail,
   };
 

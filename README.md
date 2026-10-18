@@ -7,12 +7,13 @@ Watches the GitHub repositories you have starred, detects newly opened issues, a
 ## How it works
 1. Lists your starred repos and their open issues (fully paginated, with retry and rate-limit handling).
 2. Compares them against a local state file to find issues you have not been told about.
-3. Summarises each new issue with Gemini (summary + possible fix).
+3. Summarises new issues with Gemini in batches (summary + possible fix per issue).
 4. Sends one HTML/plain-text email, then records the issues as seen.
 
 Behaviour worth knowing:
 - **No flood on first run.** A repo seen for the first time (including a newly starred one) is recorded silently; only issues opened afterwards are reported.
 - **No lost issues.** State is saved only after the email is delivered. If GitHub, Gemini or SMTP fails, the issues are retried next cycle. If only the summary fails, the issue is still emailed without one.
+- **Free-tier friendly.** Issues are summarised several per request, requests are rate-limited, and if Gemini reports exhausted quota the app stops calling it for that cycle and still sends the digest. Note the free `gemini-2.5-flash` tier allows only ~20 requests/day; `GEMINI_MODEL=gemini-2.5-flash-lite` is a verified alternative.
 - **Bounded cost.** At most `MAX_ISSUES_PER_EMAIL` issues are summarised per digest (the rest are still listed), and issue bodies are truncated before being sent to the model.
 
 ## Setup
@@ -45,6 +46,8 @@ STATE_FILE=data/state.json      # resolved relative to the working directory
 MAX_ISSUES_PER_EMAIL=50
 MAX_BODY_CHARS=4000
 LLM_CONCURRENCY=3
+LLM_BATCH_SIZE=8                # issues summarised per Gemini request
+LLM_RPM=5                       # Gemini requests per minute (free tier is 5)
 RUN_ONCE=false                  # true: run a single cycle and exit (handy for cron)
 ```
 
