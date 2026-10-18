@@ -1,7 +1,7 @@
 import dotenv from "dotenv";
 import path from "node:path";
 
-dotenv.config();
+dotenv.config({ quiet: true });
 
 export type Config = {
   githubToken: string;

@@ -1,5 +1,7 @@
 # IssueWatcher
 
+[![CI](https://github.com/mac146/IssueWatcher/actions/workflows/ci.yml/badge.svg)](https://github.com/mac146/IssueWatcher/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Watches the GitHub repositories you have starred, detects newly opened issues, and emails you a digest with an AI-generated summary and a suggested fix for each one.
 
 ## How it works
@@ -22,7 +24,7 @@ cd IssueWatcher/mcp-server
 npm install
 ```
 
-Create `mcp-server/.env`:
+Copy `.env.example` to `.env` (in `mcp-server/`) and fill it in:
 
 ```env
 # Required
@@ -48,6 +50,16 @@ RUN_ONCE=false                  # true: run a single cycle and exit (handy for c
 
 Configuration is validated at startup; every missing or invalid variable is reported at once.
 
+## Docker
+Build locally (a published image is planned for tagged releases):
+
+```bash
+docker build -t issue-watcher mcp-server
+docker run -d --name issue-watcher --restart unless-stopped \n  --env-file mcp-server/.env -v issue-watcher-data:/data issue-watcher
+```
+
+State is stored in the `/data` volume; keep it, or every repo is re-seeded on the next start. The container runs as a non-root user.
+
 ## Commands
 Run in `mcp-server/`:
 
@@ -62,6 +74,10 @@ Run in `mcp-server/`:
 | `npm run format` | Prettier |
 
 The process handles SIGINT/SIGTERM by finishing the current cycle and exiting. Keep `STATE_FILE` on persistent storage if you run it in a container.
+
+## Project docs
+- [DECISIONS.md](DECISIONS.md): design decisions and their rationale
+- [CONTRIBUTING.md](CONTRIBUTING.md): development workflow
 
 ## Layout
 ```

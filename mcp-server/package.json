@@ -1,13 +1,13 @@
 {
-  "name": "mcp-server",
+  "name": "issue-watcher",
   "version": "1.0.0",
-  "description": "",
+  "description": "Emails AI summaries of new issues in your starred GitHub repositories",
   "main": "build/index.js",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node build/index.js",
     "typecheck": "tsc --noEmit",
@@ -17,7 +17,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "type": "module",
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
@@ -31,9 +31,13 @@
     "@types/nodemailer": "^7.0.3",
     "eslint": "^9.39.1",
     "prettier": "^3.6.2",
-    "ts-node": "^10.9.2",
-    "ts-node-dev": "^2.0.0",
+    "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.71.2"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mac146/IssueWatcher.git"
+  },
+  "private": true
 }
