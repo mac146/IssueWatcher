@@ -1,23 +1,44 @@
-import dotenv from "dotenv";
-dotenv.config();
+import { loadConfig } from "./config.js";
+import { GitHubAPI } from "./github/api.js";
+import { GeminiSummarizer } from "./llm/summarizer.js";
+import { logger } from "./logger.js";
+import { SmtpMailer } from "./mail/mailer.js";
+import { loadState, saveState } from "./utils/state.js";
+import { runCycle, watch, type WatcherDeps } from "./watcher.js";
 
-import { run } from "./llm/summarizer.js";
-import { pollOnce } from "./poller/poller.js";
+async function main(): Promise<void> {
+  const config = loadConfig();
 
-async function startpolling() {
-  const initialIssues = await pollOnce();
-  await run(initialIssues);
+  const deps: WatcherDeps = {
+    source: new GitHubAPI(config.githubToken),
+    summarizer: new GeminiSummarizer(config.googleApiKey, config.geminiModel, config.maxBodyChars),
+    mailer: new SmtpMailer(config),
+    store: {
+      load: () => loadState(config.stateFile),
+      save: (state) => saveState(config.stateFile, state),
+    },
+    concurrency: config.llmConcurrency,
+    maxIssuesPerEmail: config.maxIssuesPerEmail,
+  };
 
-  setInterval(async () => {
-    const newIssues = await pollOnce();
-    await run(newIssues);
-  }, 1800000);
+  if (config.runOnce) {
+    await runCycle(deps);
+    return;
+  }
+
+  const controller = new AbortController();
+  const stop = (sig: string) => {
+    logger.info(`Received ${sig}, shutting down after the current cycle`);
+    controller.abort();
+  };
+  process.once("SIGINT", () => stop("SIGINT"));
+  process.once("SIGTERM", () => stop("SIGTERM"));
+
+  logger.info(`Watching starred repos every ${Math.round(config.pollIntervalMs / 60_000)} min`);
+  await watch(deps, config.pollIntervalMs, controller.signal);
 }
 
-async function main () {
-  startpolling();
-};
-
-main();
-
-
+main().catch((err) => {
+  logger.error("Fatal error", err);
+  process.exit(1);
+});
