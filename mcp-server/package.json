@@ -26,7 +26,7 @@
     "nodemailer": "^7.0.10"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.5",
+    "@eslint/js": "^10.0.1",
     "@types/node": "^24.10.0",
     "@types/nodemailer": "^7.0.3",
     "eslint": "^9.39.1",
