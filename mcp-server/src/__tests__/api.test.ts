@@ -3,7 +3,7 @@ import { test } from "node:test";
 import type { AxiosInstance } from "axios";
 import { GitHubAPI } from "../github/api.js";
 
-type Page = { data: unknown[]; next?: string };
+type Page = { data: unknown; next?: string };
 
 function fakeClient(pages: Page[]): { client: AxiosInstance; calls: string[] } {
   const calls: string[] = [];
@@ -18,25 +18,66 @@ function fakeClient(pages: Page[]): { client: AxiosInstance; calls: string[] } {
   return { client, calls };
 }
 
-test("follows Link headers across pages and drops pull requests", async () => {
-  const raw = (n: number, pr = false) => ({
-    number: n,
-    title: "t",
-    body: null,
-    html_url: "u",
-    state: "open",
-    user: { login: "x" },
-    labels: ["bug", { name: "help" }],
-    ...(pr ? { pull_request: {} } : {}),
-  });
-  const { client, calls } = fakeClient([
-    { data: [raw(1), raw(2, true)], next: "https://api.github.com/p2" },
-    { data: [raw(3)] },
+const raw = (n: number, extra: object = {}) => ({
+  number: n,
+  title: "t",
+  body: null,
+  html_url: "u",
+  state: "open",
+  comments: 2,
+  reactions: { total_count: 4 },
+  user: { login: "x", type: "User" },
+  labels: ["bug", { name: "help" }],
+  ...extra,
+});
+
+test("seeding asks for only the newest item and returns its number", async () => {
+  const { client, calls } = fakeClient([{ data: [{ number: 57 }] }]);
+  const res = await new GitHubAPI("t", client).getNewIssues("o", "r", null);
+  assert.deepEqual(res, { issues: [], highWater: 57 });
+  assert.equal(calls.length, 1);
+});
+
+test("returns only issues above the mark, drops PRs, and tracks the high-water mark", async () => {
+  const { client } = fakeClient([
+    { data: [raw(9), raw(8, { pull_request: {} }), raw(7)], next: "https://api.github.com/p2" },
+    { data: [raw(5)] },
   ]);
-  const issues = await new GitHubAPI("t", client).getOpenIssues("o", "r");
-  assert.deepEqual(issues.map((i) => i.number), [1, 3]);
-  assert.deepEqual(issues[0]!.labels, ["bug", "help"]);
-  assert.equal(calls.length, 2);
+  const res = await new GitHubAPI("t", client).getNewIssues("o", "r", 6);
+  assert.deepEqual(res.issues.map((i) => i.number), [9, 7]);
+  assert.equal(res.highWater, 9);
+  assert.deepEqual(res.issues[0]!.labels, ["bug", "help"]);
+  assert.equal(res.issues[0]!.reactions, 4);
+});
+
+test("stops paging once a page reaches an already-known number", async () => {
+  const { client, calls } = fakeClient([
+    { data: [raw(12), raw(10)], next: "https://api.github.com/p2" },
+    { data: [raw(1)] },
+  ]);
+  await new GitHubAPI("t", client).getNewIssues("o", "r", 10);
+  assert.equal(calls.length, 1);
+});
+
+test("flags bot authors", async () => {
+  const { client } = fakeClient([
+    { data: [raw(3, { user: { login: "dependabot[bot]", type: "Bot" } })] },
+  ]);
+  const res = await new GitHubAPI("t", client).getNewIssues("o", "r", 1);
+  assert.equal(res.issues[0]!.isBot, true);
+});
+
+test("getFile decodes base64 content and maps 404 to null", async () => {
+  const content = Buffer.from('{"name":"x"}').toString("base64");
+  const ok = fakeClient([{ data: { type: "file", encoding: "base64", content } }]);
+  assert.equal(await new GitHubAPI("t", ok.client).getFile("o", "r", "package.json"), '{"name":"x"}');
+
+  const missing = {
+    get: async () => {
+      throw Object.assign(new Error("not found"), { isAxiosError: true, response: { status: 404, headers: {} } });
+    },
+  } as unknown as AxiosInstance;
+  assert.equal(await new GitHubAPI("t", missing).getFile("o", "r", "package.json"), null);
 });
 
 test("starred repos are paginated", async () => {

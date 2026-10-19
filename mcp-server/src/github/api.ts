@@ -1,6 +1,6 @@
 import axios, { AxiosError, AxiosInstance, AxiosResponse } from "axios";
 import { logger } from "../logger.js";
-import type { Issue, IssueSource, Repo } from "../poller/types.js";
+import type { Issue, IssueSource, NewIssues, Repo } from "../poller/types.js";
 
 const PER_PAGE = 100;
 const MAX_PAGES = 50; // hard stop: 5,000 items per listing
@@ -9,16 +9,22 @@ const MAX_RATE_LIMIT_WAIT_MS = 120_000;
 
 type RawIssue = {
   number: number;
+  comments?: number;
+  assignees?: unknown[];
+  created_at?: string;
+  reactions?: { total_count?: number };
   title: string;
   body?: string | null;
   html_url: string;
   state: string;
   pull_request?: unknown;
-  user?: { login?: string } | null;
+  user?: { login?: string; type?: string } | null;
   labels?: Array<string | { name?: string }>;
 };
 
-type RawRepo = { name: string; owner: { login: string } };
+type RawRepo = { name: string; owner: { login: string }; fork?: boolean; archived?: boolean; pushed_at?: string };
+
+export type OwnRepo = Repo & { pushedAt: string };
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -80,14 +86,20 @@ export class GitHubAPI implements IssueSource {
     }
   }
 
-  private async paginate<T>(url: string, params: Record<string, unknown>): Promise<T[]> {
+  private async paginate<T>(
+    url: string,
+    params: Record<string, unknown>,
+    opts: { maxPages?: number; stopAfter?: (page: T[]) => boolean } = {},
+  ): Promise<T[]> {
+    const maxPages = opts.maxPages ?? MAX_PAGES;
     const items: T[] = [];
     let next: string | null = url;
-    let query: Record<string, unknown> | undefined = { ...params, per_page: PER_PAGE };
+    let query: Record<string, unknown> | undefined = { per_page: PER_PAGE, ...params };
 
-    for (let page = 0; next && page < MAX_PAGES; page++) {
+    for (let page = 0; next && page < maxPages; page++) {
       const res: AxiosResponse<T[]> = await this.get<T[]>(next, query);
       items.push(...res.data);
+      if (opts.stopAfter?.(res.data)) return items;
       next = nextLink(res);
       query = undefined; // the "next" URL already carries the query string
     }
@@ -101,22 +113,93 @@ export class GitHubAPI implements IssueSource {
     return raw.map((r) => ({ owner: r.owner.login, name: r.name }));
   }
 
-  async getOpenIssues(owner: string, repo: string): Promise<Issue[]> {
-    const raw = await this.paginate<RawIssue>(`/repos/${owner}/${repo}/issues`, {
-      state: "open",
-    });
-    return raw
-      .filter((i) => !i.pull_request)
-      .map((i) => ({
-        repo: `${owner}/${repo}`,
-        number: i.number,
-        title: i.title,
-        body: i.body ?? "",
-        user: i.user?.login ?? "unknown",
-        url: i.html_url,
-        labels: (i.labels ?? [])
-          .map((l) => (typeof l === "string" ? l : l.name))
-          .filter((n): n is string => Boolean(n)),
-      }));
+  async getNewIssues(owner: string, repo: string, after: number | null): Promise<NewIssues> {
+    const path = `/repos/${owner}/${repo}/issues`;
+
+    if (after === null) {
+      // Seeding: only the newest item (issue or PR, open or closed) is needed.
+      const res = await this.get<RawIssue[]>(path, {
+        state: "all",
+        sort: "created",
+        direction: "desc",
+        per_page: 1,
+      });
+      return { issues: [], highWater: res.data[0]?.number ?? 0 };
+    }
+
+    // Newest first; once a page reaches a number we already know, older items are known too.
+    const raw = await this.paginate<RawIssue>(
+      path,
+      { state: "open", sort: "created", direction: "desc" },
+      { maxPages: 10, stopAfter: (page) => page.some((i) => i.number <= after) },
+    );
+
+    const fresh = [...new Map(raw.map((i) => [i.number, i])).values()].filter(
+      (i) => i.number > after,
+    );
+    return {
+      issues: fresh.filter((i) => !i.pull_request).map((i) => toIssue(i, `${owner}/${repo}`)),
+      highWater: fresh.reduce((max, i) => Math.max(max, i.number), after),
+    };
   }
+
+  /** Newest open issues (no PRs), used by the preview command. */
+  async getRecentOpenIssues(owner: string, repo: string, limit: number): Promise<Issue[]> {
+    const res = await this.get<RawIssue[]>(`/repos/${owner}/${repo}/issues`, {
+      state: "open",
+      sort: "created",
+      direction: "desc",
+      per_page: Math.min(100, limit * 3),
+    });
+    return res.data
+      .filter((i) => !i.pull_request)
+      .slice(0, limit)
+      .map((i) => toIssue(i, `${owner}/${repo}`));
+  }
+
+  /** The user's own, non-fork, non-archived repos, most recently pushed first. */
+  async listOwnRepos(): Promise<OwnRepo[]> {
+    const raw = await this.paginate<RawRepo>(
+      "/user/repos",
+      { affiliation: "owner", sort: "pushed" },
+      { maxPages: 5 },
+    );
+    return raw
+      .filter((r) => !r.fork && !r.archived)
+      .map((r) => ({ owner: r.owner.login, name: r.name, pushedAt: r.pushed_at ?? "" }));
+  }
+
+  /** Returns a file's text from the default branch, or null if it does not exist. */
+  async getFile(owner: string, repo: string, filePath: string): Promise<string | null> {
+    try {
+      const res = await this.get<{ content?: string; encoding?: string; type?: string }>(
+        `/repos/${owner}/${repo}/contents/${filePath}`,
+      );
+      const { content, encoding, type } = res.data;
+      if (type !== "file" || !content || encoding !== "base64") return null;
+      return Buffer.from(content, "base64").toString("utf-8");
+    } catch (err) {
+      if (axios.isAxiosError(err) && err.response?.status === 404) return null;
+      throw err;
+    }
+  }
+}
+
+function toIssue(i: RawIssue, repo: string): Issue {
+  return {
+    repo,
+    number: i.number,
+    title: i.title,
+    body: i.body ?? "",
+    user: i.user?.login ?? "unknown",
+    url: i.html_url,
+    labels: (i.labels ?? [])
+      .map((l) => (typeof l === "string" ? l : l.name))
+      .filter((n): n is string => Boolean(n)),
+    comments: i.comments ?? 0,
+    assignees: i.assignees?.length ?? 0,
+    createdAt: i.created_at ?? "",
+    reactions: i.reactions?.total_count ?? 0,
+    isBot: i.user?.type === "Bot" || (i.user?.login ?? "").endsWith("[bot]"),
+  };
 }

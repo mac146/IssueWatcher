@@ -21,6 +21,13 @@ Status values: **Accepted**, **Superseded by D-xxx**, **Proposed** (needs the ow
 | D-013 | Remove the "MCP" claim until a real MCP server exists | Accepted |
 | D-014 | Use `tsx` for the dev runner | Accepted |
 | D-015 | Batch issues per LLM request; rate limit; stop on exhausted quota | Accepted |
+| D-016 | Per-repo high-water mark state | Accepted |
+| D-017 | Watch dependency repos from the user's manifests | Accepted |
+| D-018 | Rule-based relevance scoring, LLM for top tier only | Accepted (weights unvalidated) |
+| D-019 | DRY_RUN preview mode | Accepted |
+| D-020 | Scoring modes: consumer, contributor, both | Accepted (weights unvalidated) |
+| D-021 | Junk filter and test-work exception in scoring | Accepted |
+| D-020 | Scoring modes: consumer, contributor, both | Accepted (weights unvalidated) |
 
 ---
 
@@ -159,3 +166,52 @@ Status values: **Accepted**, **Superseded by D-xxx**, **Proposed** (needs the ow
 **Verified live.** With `gemini-2.5-flash-lite`: 34 of 34 issues summarised in 5 requests, and the digest email was sent. `gemini-2.5-flash` was over its daily quota at the time, so batched mode has **not** been verified with that model yet. The default model stays `gemini-2.5-flash` for quality; set `GEMINI_MODEL=gemini-2.5-flash-lite` if you hit its quota. Summaries from flash-lite were noticeably shorter (average 367 characters, against about 700 from flash).
 
 **Revisit when** a paid key is used (raise `LLM_RPM` and batch size), or when per-user quotas are needed in the multi-user phase.
+
+## D-016: Track a per-repo high-water mark instead of every open issue number
+**Context.** State held every open issue number per repo (2,749 numbers for 15 repos). Watching dependencies (React-sized repos with thousands of open issues) would need full pagination each cycle and exhaust the GitHub rate limit.
+
+**Decision.** State is `repo -> highest issue/PR number seen`. Issue numbers only increase, so "new" means number above the mark. Polls fetch newest-first and stop paging at the first number already known, so a quiet repo costs one request. Seeding asks for a single item (`per_page=1`, state=all) to learn the mark. v1 state files migrate automatically (mark = max of the old list).
+
+**Trade-offs.** An issue reopened or transferred in is not reported as new, and issues that were open but low-numbered are never revisited. That matches "tell me about new issues". PRs share the number space, which is harmless for a high-water mark.
+
+## D-017: Watch dependency source repos, discovered from the user's own manifests
+**Decision.** Scan the user's recently pushed, non-fork repos (or `DEPENDENCY_REPOS`) for `package.json` and `requirements.txt`; resolve each package to its GitHub repo through the npm and PyPI registries; watch those repos alongside starred ones. Results are cached for 24 h (`data/dependencies.json`), and a failed refresh falls back to the stale cache. Direct dependencies only, capped (`MAX_DEPENDENCIES`), most widely used first. Unresolvable packages are skipped.
+
+**Why.** This is the differentiator over "email me every new issue": relevance to what you actually run.
+
+**Limits.** npm and PyPI only; lockfiles, monorepo sub-packages, `pyproject.toml`, Go and Rust are not read yet. Version ranges are approximated by their lowest allowed version, not the locked version.
+
+## D-018: Transparent rule-based relevance scoring, LLM only for the top tier
+**Decision.** Each issue gets a 0-100 score from rules (runtime dependency +40, dev +25, starred only +20; version mentioned in the report matching your range +15/+25; severity words and labels up to +30; community attention; penalties for bots, question/docs/duplicate labels and empty bodies). Every point carries a human-readable reason, shown in the email as "Why you're seeing this". Only issues at or above `MIN_SUMMARY_SCORE` (default 30), up to `MAX_ISSUES_PER_EMAIL`, get an LLM summary; the rest are listed compactly with no LLM call.
+
+**Why rules first.** They are free, explainable and testable, and they cut LLM calls sharply (see D-015). A model-based ranker can come later, trained on feedback.
+
+**Not yet validated.** Weights are educated guesses. A dry run on the author's own account looked sensible at the top (version-matching bugs in real dependencies ranked first) but also surfaced weaknesses: major-only version matches are weak evidence, and a dev-tool issue can outrank a runtime-dependency issue when it has many reactions. The planned evaluation (label about 100 issues useful/noise, measure precision of the top 10) has not been done. Treat the numbers as provisional.
+
+## D-019: `DRY_RUN` preview mode
+**Decision.** `DRY_RUN=true` ranks the newest open issues per repo as if they were new and prints the digest. It makes no LLM calls, sends no email and does not touch state, and needs neither the Gemini key nor SMTP settings.
+
+**Why.** The ranking is the product; being able to inspect it without spending quota or sending email is how weights get tuned.
+
+## D-020: Scoring modes (`consumer`, `contributor`, `both`)
+**Context.** D-018 scored issues as if the user only consumes libraries, so a plain starred repo ranked low (about 20 against 40 for a dependency). The owner pointed out the opposite is true for an open-source contributor: they star repos they want to work on, and the question they ask is "what can I pick up and fix?", not "what could break my project?".
+
+**Decision.** `SCORING_MODE` selects the view; default `both`.
+- `consumer`: unchanged D-018 rules (dependencies and version matches rank highest, a star is a weak signal).
+- `contributor`: a star is a strong signal (+30), dependencies count less (+15 runtime, +8 dev), version matching is off, and these signals apply: `good first issue` +20, `help wanted`/`hacktoberfest` +15, unassigned +10 (assigned -25), opened within 48 h +10, few comments +5 (10 or more comments -5), reproduction details +5 (or a long description +3). Docs work is not penalised; questions and support requests are.
+- `both`: consumer rules plus the contributor signals, with the +30 star weight.
+
+All signals use fields already returned by the issues endpoint (labels, assignees, created_at, comments), so there is no extra API cost.
+
+**Not done.** Checking whether someone already opened a PR for the issue needs the timeline API (one request per issue); "unassigned" and "few comments" are used as a rough stand-in. Repo health (do maintainers merge PRs?) is also not measured yet.
+
+**Known weaknesses seen in a dry run (provisional weights).** A "regression" keyword in a request for a regression test suite counted as severity; a non-English "report a bug" template and a one-word title ("idurar") scored around 50 because they were fresh, unassigned and starred. A junk filter (title length, template-only bodies) is a candidate next step.
+
+## D-021: Junk filter and test-work exception in scoring
+**Decision.** Titles under 10 characters or with no space (for example "idurar", "test", "Assignment__1__") get -20 ("vague title"); titles that are mostly non-Latin script get -15 ("non-English title"). A severity keyword in the title is ignored when the title is about tests ("Add regression test suite").
+
+**Why.** Found in the contributor-mode dry run (D-020): fresh, unassigned issues in starred repos with throwaway titles scored around 50, and a request for a regression test suite ranked first.
+
+**Trade-off.** The non-English penalty assumes English-language repos; a reader who works comfortably in other languages may want it off. It is a fixed rule today and a candidate for a setting if anyone asks.
+
+**Live verification.** Contributor-mode run on the author's account: 23 new issues, 13 in the top tier, 10 compact. `gemini-2.5-flash` was out of daily quota (the circuit breaker in D-015 skipped summaries and the digest still went out), so the final email used `gemini-2.5-flash-lite`.

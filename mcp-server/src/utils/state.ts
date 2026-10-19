@@ -2,18 +2,27 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { RepoState } from "../poller/types.js";
 
-const VERSION = 1;
+const VERSION = 2;
 
 type StateFile = { version: number; repos: RepoState };
 
-function isRepoState(value: unknown): value is RepoState {
+function isHighWaterState(value: unknown): value is RepoState {
   return (
     typeof value === "object" &&
     value !== null &&
-    Object.values(value).every(
-      (v) => Array.isArray(v) && v.every((n) => Number.isInteger(n)),
-    )
+    Object.values(value).every((n) => Number.isInteger(n) && (n as number) >= 0)
   );
+}
+
+/** v1 stored every open issue number per repo; the high-water mark is their maximum. */
+function migrateV1(value: unknown): RepoState | null {
+  if (typeof value !== "object" || value === null) return null;
+  const out: RepoState = {};
+  for (const [repo, numbers] of Object.entries(value)) {
+    if (!Array.isArray(numbers) || !numbers.every((n) => Number.isInteger(n))) return null;
+    out[repo] = numbers.length ? Math.max(...numbers) : 0;
+  }
+  return out;
 }
 
 /**
@@ -29,16 +38,18 @@ export async function loadState(file: string): Promise<RepoState> {
     throw err;
   }
 
-  let parsed: unknown;
+  let parsed: Partial<StateFile>;
   try {
-    parsed = JSON.parse(raw);
+    parsed = JSON.parse(raw) as Partial<StateFile>;
   } catch (err) {
     throw new Error(`State file ${file} is corrupt; fix or delete it`, { cause: err });
   }
 
-  const repos = (parsed as Partial<StateFile>)?.repos;
-  if (!isRepoState(repos)) throw new Error(`State file ${file} has an unexpected shape`);
-  return repos;
+  const repos = parsed?.repos;
+  if (parsed?.version === VERSION && isHighWaterState(repos)) return repos;
+  const migrated = migrateV1(repos);
+  if (migrated) return migrated;
+  throw new Error(`State file ${file} has an unexpected shape`);
 }
 
 /** Atomic write (temp file + rename) so a crash never leaves a truncated file. */

@@ -4,6 +4,11 @@
 
 Watches the GitHub repositories you have starred, detects newly opened issues, and emails you a digest with an AI-generated summary and a suggested fix for each one.
 
+## What makes it different
+Besides your starred repos, IssueWatcher reads the `package.json` and `requirements.txt` of your own repos and also watches the libraries you depend on. New issues are scored 0-100 (is it a library you use? does it mention your version? does it sound severe?). Only the top ones get an AI summary and a "why you are seeing this" line; the rest are listed compactly.
+
+Try it without sending anything: `DRY_RUN=true npm run dev` prints the ranked list.
+
 ## How it works
 1. Lists your starred repos and their open issues (fully paginated, with retry and rate-limit handling).
 2. Compares them against a local state file to find issues you have not been told about.
@@ -46,6 +51,12 @@ STATE_FILE=data/state.json      # resolved relative to the working directory
 MAX_ISSUES_PER_EMAIL=50
 MAX_BODY_CHARS=4000
 LLM_CONCURRENCY=3
+DEPENDENCY_SCAN=true            # also watch libraries your repos depend on
+SCORING_MODE=both                # consumer, contributor (issues you could fix) or both
+MIN_SUMMARY_SCORE=30            # only issues scoring this high get an AI summary
+IGNORE_REPOS=                   # e.g. 100xdevs-*/*  (star wildcard)
+IGNORE_LABELS=                  # e.g. question,duplicate
+DRY_RUN=false                   # print the ranking only; no email, LLM or state change
 LLM_BATCH_SIZE=8                # issues summarised per Gemini request
 LLM_RPM=5                       # Gemini requests per minute (free tier is 5)
 RUN_ONCE=false                  # true: run a single cycle and exit (handy for cron)

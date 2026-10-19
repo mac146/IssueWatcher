@@ -1,49 +1,55 @@
 import { logger } from "../logger.js";
-import type { Issue, IssueSource, RepoState } from "./types.js";
+import type { Issue, IssueSource, RepoState, WatchTarget } from "./types.js";
+
+export type PolledIssue = { issue: Issue; target: WatchTarget };
 
 export type PollResult = {
   /** Issues not seen before, excluding silently seeded repos. */
-  newIssues: Issue[];
+  newIssues: PolledIssue[];
   /** State to persist once the new issues have been delivered. */
   nextState: RepoState;
 };
 
 /**
- * Compares current open issues against `state` without mutating it or doing I/O.
+ * Finds issues opened since the last poll without mutating `state` or doing I/O
+ * of its own.
  *
- * - A repo missing from `state` (first run, or newly starred) is seeded silently
- *   so the user is not flooded with its entire backlog.
- * - If fetching a repo fails, its previous state is kept so nothing is lost or
- *   re-reported.
- * - Unstarred repos drop out of the state.
+ * State is a per-repo high-water mark, so a poll normally costs one API request
+ * per repo no matter how many issues the repo has.
+ *
+ * - A repo missing from `state` (first run, newly starred, newly depended on) is
+ *   seeded silently so the user is not flooded with its backlog.
+ * - If fetching a repo fails, its previous mark is kept so nothing is lost.
+ * - Repos no longer watched drop out of the state.
  */
-export async function pollOnce(source: IssueSource, state: RepoState): Promise<PollResult> {
-  const repos = await source.getStarredRepos();
+export async function pollOnce(
+  source: IssueSource,
+  targets: WatchTarget[],
+  state: RepoState,
+): Promise<PollResult> {
   const nextState: RepoState = {};
-  const newIssues: Issue[] = [];
+  const newIssues: PolledIssue[] = [];
 
-  for (const { owner, name } of repos) {
-    const key = `${owner}/${name}`;
+  for (const target of targets) {
+    const key = `${target.owner}/${target.name}`;
     const previous = state[key];
 
-    let issues: Issue[];
     try {
-      issues = await source.getOpenIssues(owner, name);
+      const { issues, highWater } = await source.getNewIssues(
+        target.owner,
+        target.name,
+        previous ?? null,
+      );
+      nextState[key] = Math.max(highWater, previous ?? 0);
+
+      if (previous === undefined) {
+        logger.info(`Seeded ${key} at #${highWater}`);
+        continue;
+      }
+      for (const issue of issues) newIssues.push({ issue, target });
     } catch (err) {
       logger.warn(`Skipping ${key}: failed to fetch issues`, err);
-      if (previous) nextState[key] = previous;
-      continue;
-    }
-
-    nextState[key] = issues.map((i) => i.number);
-    if (!previous) {
-      logger.info(`Seeded ${key} with ${issues.length} existing open issues`);
-      continue;
-    }
-
-    const seen = new Set(previous);
-    for (const issue of issues) {
-      if (!seen.has(issue.number)) newIssues.push(issue);
+      if (previous !== undefined) nextState[key] = previous;
     }
   }
 

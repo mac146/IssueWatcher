@@ -10,12 +10,6 @@ export type Summarizer = {
   summarizeBatch(issues: Issue[]): Promise<Array<string | null>>;
 };
 
-export type SummarizedIssue = {
-  issue: Issue;
-  /** null when summarisation was skipped or failed; the email still lists the issue. */
-  summary: string | null;
-};
-
 /** The provider will not serve requests for a long time (e.g. daily quota); stop calling it. */
 export class QuotaExhaustedError extends Error {
   constructor(message: string) {
@@ -168,30 +162,27 @@ const chunk = <T>(items: T[], size: number): T[][] => {
 };
 
 /**
- * Summarises issues in batches with bounded concurrency.
+ * Summarises items in batches with bounded concurrency, preserving order.
  * - A failed batch is retried issue by issue, so one malformed response doesn't
  *   cost every summary in it.
  * - If the provider reports exhausted quota, remaining calls are skipped (one
  *   warning, not one per issue).
- * - Issues that stay unsummarised, and those beyond `limit`, are still listed.
+ * - Items that stay unsummarised keep `summary: null`; callers still list them.
  */
-export async function summarizeIssues(
-  issues: Issue[],
+export async function summarizeIssues<T extends { issue: Issue }>(
+  items: T[],
   summarizer: Summarizer,
-  opts: { concurrency: number; limit: number; batchSize: number },
-): Promise<SummarizedIssue[]> {
-  const results: SummarizedIssue[] = issues.map((issue) => ({ issue, summary: null }));
-  const batches = chunk(
-    results.slice(0, Math.min(issues.length, opts.limit)),
-    opts.batchSize,
-  );
+  opts: { concurrency: number; batchSize: number },
+): Promise<Array<T & { summary: string | null }>> {
+  const results = items.map((item) => ({ ...item, summary: null as string | null }));
+  const batches = chunk(results, opts.batchSize);
   let cursor = 0;
   let halted = false;
 
-  const fill = (entries: SummarizedIssue[], summaries: Array<string | null>) =>
+  const fill = (entries: typeof results, summaries: Array<string | null>) =>
     entries.forEach((entry, i) => (entry.summary = summaries[i] ?? null));
 
-  const handleBatch = async (entries: SummarizedIssue[]) => {
+  const handleBatch = async (entries: typeof results) => {
     try {
       fill(entries, await summarizer.summarizeBatch(entries.map((e) => e.issue)));
       return;

@@ -18,6 +18,16 @@ export type Config = {
   llmConcurrency: number;
   llmRequestsPerMinute: number;
   llmBatchSize: number;
+  dependencyScan: boolean;
+  dependencyRepos: string[];
+  maxDependencyRepos: number;
+  maxDependencies: number;
+  minSummaryScore: number;
+  scoringMode: "consumer" | "contributor" | "both";
+  ignoreRepos: string[];
+  ignoreLabels: string[];
+  dryRun: boolean;
+  previewPerRepo: number;
 };
 
 type Env = Record<string, string | undefined>;
@@ -27,6 +37,12 @@ function required(env: Env, key: string, missing: string[]): string {
   if (!value) missing.push(key);
   return value ?? "";
 }
+
+const list = (raw: string | undefined): string[] =>
+  (raw ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 
 function int(env: Env, key: string, fallback: number, min: number, errors: string[]): number {
   const raw = env[key]?.trim();
@@ -45,13 +61,18 @@ export function loadConfig(env: Env = process.env): Config {
   const errors: string[] = [];
 
   const githubToken = required(env, "GITHUB_TOKEN", missing);
-  const googleApiKey = required(env, "GOOGLE_API_KEY", missing);
-  const smtpUser = required(env, "SMTP_USER", missing);
-  const smtpPass = required(env, "SMTP_PASS", missing);
-  const mailTo = required(env, "MAIL_TO", missing)
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  // Dry-run only reads GitHub, so it needs neither the LLM key nor mail settings.
+  const dryRun = env.DRY_RUN === "true";
+  const sendingKey = (key: string) => (dryRun ? env[key]?.trim() ?? "" : required(env, key, missing));
+  const googleApiKey = sendingKey("GOOGLE_API_KEY");
+  const smtpUser = sendingKey("SMTP_USER");
+  const smtpPass = sendingKey("SMTP_PASS");
+  const mailTo = list(sendingKey("MAIL_TO"));
+
+  const scoringMode = (env.SCORING_MODE?.trim().toLowerCase() || "both") as Config["scoringMode"];
+  if (!["consumer", "contributor", "both"].includes(scoringMode)) {
+    errors.push(`SCORING_MODE must be consumer, contributor or both (got "${env.SCORING_MODE}")`);
+  }
 
   const smtpPort = int(env, "SMTP_PORT", 465, 1, errors);
 
@@ -78,6 +99,16 @@ export function loadConfig(env: Env = process.env): Config {
     // Default matches Gemini's free tier; raise it if you have a paid key.
     llmRequestsPerMinute: int(env, "LLM_RPM", 5, 1, errors),
     llmBatchSize: int(env, "LLM_BATCH_SIZE", 8, 1, errors),
+    dependencyScan: env.DEPENDENCY_SCAN !== "false",
+    dependencyRepos: list(env.DEPENDENCY_REPOS),
+    maxDependencyRepos: int(env, "MAX_DEPENDENCY_REPOS", 20, 1, errors),
+    maxDependencies: int(env, "MAX_DEPENDENCIES", 100, 1, errors),
+    scoringMode,
+    minSummaryScore: int(env, "MIN_SUMMARY_SCORE", 30, 0, errors),
+    ignoreRepos: list(env.IGNORE_REPOS),
+    ignoreLabels: list(env.IGNORE_LABELS),
+    dryRun,
+    previewPerRepo: int(env, "PREVIEW_PER_REPO", 3, 1, errors),
   };
 
   if (missing.length) errors.unshift(`Missing required env vars: ${missing.join(", ")}`);

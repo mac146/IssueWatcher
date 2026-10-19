@@ -10,12 +10,13 @@ import {
 } from "../llm/summarizer.js";
 import { issue } from "./helpers.js";
 
+const items = (n: number) => Array.from({ length: n }, (_, i) => ({ issue: issue("a/b", i + 1) }));
+const echo: Summarizer = { summarizeBatch: async (b) => b.map((i) => `s${i.number}`) };
+
 test("rate limiter spaces requests 60s/rpm apart", async () => {
-  const t = 0; // fake clock stays put: all three acquire() calls are concurrent
   const waits: number[] = [];
-  const limiter = new RateLimiter(5, () => t, async (ms) => {
-    waits.push(ms);
-  });
+  // The fake clock stays put: all three acquire() calls are concurrent.
+  const limiter = new RateLimiter(5, () => 0, async (ms) => void waits.push(ms));
   await Promise.all([limiter.acquire(), limiter.acquire(), limiter.acquire()]);
   assert.deepEqual(waits, [12_000, 24_000]);
 });
@@ -26,9 +27,6 @@ test("parses Gemini's requested retry delay from a 429", () => {
   assert.equal(parseRetryDelayMs(new Error("[429] no hint")), 30_000);
   assert.equal(parseRetryDelayMs(new Error("[500 Server Error]")), null);
 });
-
-const issues = (n: number) => Array.from({ length: n }, (_, i) => issue("a/b", i + 1));
-const echo: Summarizer = { summarizeBatch: async (b) => b.map((i) => `s${i.number}`) };
 
 test("parses retry delays that include hours and minutes", () => {
   const ms = parseRetryDelayMs(new Error("[429] Please retry in 14h56m42.9s."))!;
@@ -53,22 +51,25 @@ test("parseBatchResponse rejects non-array payloads", () => {
   assert.throws(() => parseBatchResponse("not json", 1));
 });
 
-test("issues are sent in batches of the configured size", async () => {
+test("items are sent in batches of the configured size, order preserved", async () => {
   const sizes: number[] = [];
   const s: Summarizer = {
     summarizeBatch: async (b) => {
       sizes.push(b.length);
-      return b.map(() => "ok");
+      return b.map((i) => `s${i.number}`);
     },
   };
-  const out = await summarizeIssues(issues(7), s, { concurrency: 1, limit: 100, batchSize: 3 });
+  const out = await summarizeIssues(items(7), s, { concurrency: 1, batchSize: 3 });
   assert.deepEqual(sizes, [3, 3, 1]);
-  assert.ok(out.every((o) => o.summary === "ok"));
+  assert.deepEqual(out.map((o) => o.summary), ["s1", "s2", "s3", "s4", "s5", "s6", "s7"]);
 });
 
-test("issues beyond the limit are listed without a summary", async () => {
-  const out = await summarizeIssues(issues(5), echo, { concurrency: 2, limit: 2, batchSize: 2 });
-  assert.deepEqual(out.map((o) => o.summary), ["s1", "s2", null, null, null]);
+test("extra fields on items are preserved", async () => {
+  const out = await summarizeIssues([{ issue: issue("a/b", 1), score: 77 }], echo, {
+    concurrency: 1,
+    batchSize: 5,
+  });
+  assert.equal(out[0]!.score, 77);
 });
 
 test("a failed batch falls back to issue-by-issue", async () => {
@@ -78,7 +79,7 @@ test("a failed batch falls back to issue-by-issue", async () => {
       return b.map((i) => `s${i.number}`);
     },
   };
-  const out = await summarizeIssues(issues(3), s, { concurrency: 1, limit: 10, batchSize: 3 });
+  const out = await summarizeIssues(items(3), s, { concurrency: 1, batchSize: 3 });
   assert.deepEqual(out.map((o) => o.summary), ["s1", "s2", "s3"]);
 });
 
@@ -90,7 +91,7 @@ test("quota exhaustion stops further calls after one attempt", async () => {
       throw new QuotaExhaustedError("daily quota");
     },
   };
-  const out = await summarizeIssues(issues(20), s, { concurrency: 1, limit: 100, batchSize: 2 });
+  const out = await summarizeIssues(items(20), s, { concurrency: 1, batchSize: 2 });
   assert.equal(calls, 1);
   assert.equal(out.length, 20);
   assert.ok(out.every((o) => o.summary === null));
@@ -107,6 +108,6 @@ test("concurrency is bounded", async () => {
       return b.map(() => "ok");
     },
   };
-  await summarizeIssues(issues(8), s, { concurrency: 2, limit: 8, batchSize: 1 });
+  await summarizeIssues(items(8), s, { concurrency: 2, batchSize: 1 });
   assert.equal(peak, 2);
 });
