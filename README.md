@@ -73,6 +73,25 @@ RUN_ONCE=false                  # true: run a single cycle and exit (handy for c
 
 Configuration is validated at startup; every missing or invalid variable is reported at once.
 
+## Run it free on GitHub Actions
+No server needed: a scheduled workflow in your own fork runs IssueWatcher every 3 hours.
+
+1. **Fork** this repository (keep the fork public; see the note below).
+2. In the fork go to **Settings > Secrets and variables > Actions** and add these **secrets**:
+   - `GH_PAT`: a GitHub personal access token that can read your starred repos (and your own repos, if you want dependency watching of private projects). The built-in token cannot read your stars.
+   - `SMTP_USER`, `SMTP_PASS`, `MAIL_TO`: your mail settings (for Gmail, use an App Password).
+   - Optional AI keys: `GOOGLE_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`. With none, digests use plain excerpts.
+3. Optionally add **variables** (same page, Variables tab) such as `SCORING_MODE`, `IGNORE_REPOS`, `MIN_SUMMARY_SCORE`, `LLM_PROVIDERS`.
+4. Open the **Actions** tab, enable workflows for the fork, and run **Watch issues** once by hand (tick *dry run* first to preview the ranking without sending anything).
+
+How it behaves:
+- The first run only records where each repo stands (no email). You hear about issues opened after that.
+- State is kept in the Actions cache, which is private to your repository. If GitHub evicts it, the next run re-seeds silently: nothing is re-sent, but issues opened during the gap are missed.
+- GitHub may delay scheduled runs by several minutes, and it disables scheduled workflows in repositories with no activity for 60 days. Re-enable it in the Actions tab if that happens. Workflow failures are emailed to you by GitHub.
+- Public repositories get free Actions minutes; check GitHub's current billing page before using a private fork.
+
+Do not commit your `.env`, and keep your tokens in Secrets only.
+
 ## Choosing an AI provider
 | Provider | Key | Default model (override with `*_MODEL`) |
 | --- | --- | --- |

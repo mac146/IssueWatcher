@@ -1,0 +1,117 @@
+name: Watch issues
+
+# Runs IssueWatcher on a schedule in YOUR fork; nothing needs to be hosted.
+# Setup (see README, "Run it free on GitHub Actions"): fork the repo, add the
+# secrets below, then enable Actions on the fork. Scheduled workflows are off
+# in new forks until you enable them.
+
+on:
+  schedule:
+    - cron: "17 */3 * * *" # every 3 hours; GitHub may delay runs by several minutes
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Print the ranked list only: no email, no AI calls, no state change"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# One run at a time, so two runs never race on the same state.
+concurrency:
+  group: issue-watcher
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    # The upstream project has no secrets, so it only runs when started by hand.
+    if: github.event_name == 'workflow_dispatch' || github.repository != 'mac146/IssueWatcher'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: mcp-server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mcp-server/package-lock.json
+
+      - run: npm ci
+      - run: npm run build
+
+      # State (which issues were already reported) lives in the Actions cache, which is
+      # private to this repository. If it is ever evicted the next run re-seeds silently:
+      # nothing is re-sent, but issues opened during the gap are not reported.
+      - name: Restore state
+        uses: actions/cache/restore@v4
+        with:
+          path: mcp-server/data
+          key: issuewatcher-state-${{ github.run_id }}
+          restore-keys: issuewatcher-state-
+
+      - name: Check required secrets
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          missing=""
+          [ -n "$GH_PAT" ] || missing="$missing GH_PAT"
+          if [ "$DRY_RUN" != "true" ]; then
+            [ -n "$SMTP_USER" ] || missing="$missing SMTP_USER"
+            [ -n "$SMTP_PASS" ] || missing="$missing SMTP_PASS"
+            [ -n "$MAIL_TO" ] || missing="$missing MAIL_TO"
+          fi
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secrets:$missing (Settings > Secrets and variables > Actions)"
+            exit 1
+          fi
+
+      - name: Run IssueWatcher
+        run: node build/index.js
+        env:
+          RUN_ONCE: "true"
+          DRY_RUN: ${{ inputs.dry_run }}
+          # Required secrets. The built-in GITHUB_TOKEN cannot read your starred repos,
+          # so a personal access token is needed.
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+          # Optional AI keys: set any; unset ones are ignored. No key means plain excerpts.
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          # Optional settings, as repository variables (Settings > Secrets and variables > Actions > Variables).
+          LLM_PROVIDERS: ${{ vars.LLM_PROVIDERS }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
+          ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL }}
+          GROQ_MODEL: ${{ vars.GROQ_MODEL }}
+          OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL }}
+          SCORING_MODE: ${{ vars.SCORING_MODE }}
+          MIN_SUMMARY_SCORE: ${{ vars.MIN_SUMMARY_SCORE }}
+          IGNORE_REPOS: ${{ vars.IGNORE_REPOS }}
+          IGNORE_LABELS: ${{ vars.IGNORE_LABELS }}
+          DEPENDENCY_SCAN: ${{ vars.DEPENDENCY_SCAN }}
+          DEPENDENCY_REPOS: ${{ vars.DEPENDENCY_REPOS }}
+          MAX_ISSUES_PER_EMAIL: ${{ vars.MAX_ISSUES_PER_EMAIL }}
+
+      # Save even if the run failed part-way; the app only writes state after an email
+      # is delivered, so whatever is on disk is consistent. Skipped for dry runs.
+      - name: Save state
+        if: always() && inputs.dry_run != true
+        uses: actions/cache/save@v4
+        with:
+          path: mcp-server/data
+          key: issuewatcher-state-${{ github.run_id }}

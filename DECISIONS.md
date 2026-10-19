@@ -30,6 +30,7 @@ Status values: **Accepted**, **Superseded by D-xxx**, **Proposed** (needs the ow
 | D-022 | Provider-agnostic LLM layer with fallback | Accepted |
 | D-023 | Redis summary cache with in-memory fallback | Accepted |
 | D-024 | AI optional; excerpts when no summary available | Accepted |
+| D-025 | Scheduled GitHub Actions run with state in the Actions cache | Accepted |
 | D-020 | Scoring modes: consumer, contributor, both | Accepted (weights unvalidated) |
 
 ---
@@ -241,3 +242,12 @@ All signals use fields already returned by the issues endpoint (labels, assignee
 **Why.** The digest's value is the ranking and the reasons; AI summaries are a bonus. A free, dependency-free fallback means the project works for a student with no budget and keeps working when quotas run out.
 
 **Limit.** An excerpt does not interpret the issue and offers no fix suggestion, which is why it is labelled differently from a summary.
+
+## D-025: Scheduled GitHub Actions run, state in the Actions cache
+**Context.** The goal is for a student with no budget to run this for free and publicly. Hosting a server costs money and ties every user's usage to one person's keys. GitHub Actions gives each user free scheduled compute in their own fork.
+
+**Decision.** `watch.yml` runs `RUN_ONCE=true node build/index.js` every 3 hours (and on demand, with an optional dry-run input). Secrets and variables map to the existing environment variables; GitHub passes unset ones as empty strings, which the config treats as unset (covered by a test). State and the dependency cache (`mcp-server/data`) are restored and saved with `actions/cache` using a unique key per run and a prefix restore key, so each run starts from the latest state. A secrets check fails fast with a clear message. The job runs only on forks, or when started by hand upstream, because the upstream repository has no secrets. Runs are serialised with a concurrency group.
+
+**Why the cache and not a state branch.** I first planned a dedicated branch, but in a public fork it would publish the dependency cache, which names the owner's repositories, including private ones scanned with the token. The Actions cache is private to the repository. **Trade-off:** caches can be evicted (after 7 days without access, or under storage pressure), unlike a branch. The failure mode is safe: the next run re-seeds silently, so nothing is re-sent, but issues opened during the gap are not reported. With a 3-hour schedule, eviction through inactivity is unlikely.
+
+**Limits.** Scheduled workflows run late, can be skipped under load, and are disabled after 60 days of repository inactivity; the README says so. A personal access token is required because the built-in token cannot read the user's stars; it is stored as a secret and never logged. Verified: `actionlint` passes on all workflows, and the run step was simulated locally with blank optional variables (dry run, real GitHub). **Not verified:** an actual run on GitHub (it needs a fork with secrets), and the cache restore and save behaviour.

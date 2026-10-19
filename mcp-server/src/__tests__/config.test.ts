@@ -63,3 +63,26 @@ test("a custom OpenAI-compatible endpoint (e.g. Ollama) needs a base URL and mod
 test("dry run needs no mail settings", () => {
   assert.doesNotThrow(() => loadConfig({ GITHUB_TOKEN: "g", DRY_RUN: "true" }));
 });
+
+test("empty strings, which is how GitHub Actions passes unset secrets and variables, count as unset", () => {
+  const blank = Object.fromEntries(
+    [
+      "GOOGLE_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY", "REDIS_URL",
+      "LLM_PROVIDERS", "GEMINI_MODEL", "OPENAI_MODEL", "ANTHROPIC_MODEL", "GROQ_MODEL", "OPENROUTER_MODEL",
+      "SCORING_MODE", "MIN_SUMMARY_SCORE", "IGNORE_REPOS", "IGNORE_LABELS", "DEPENDENCY_SCAN", "DEPENDENCY_REPOS",
+      "MAX_ISSUES_PER_EMAIL", "DRY_RUN", "SMTP_PORT", "SMTP_SECURE", "MAIL_FROM", "CUSTOM_LLM_BASE_URL",
+    ].map((k) => [k, ""]),
+  );
+  const c = loadConfig({ ...base, ...blank, RUN_ONCE: "true" });
+  assert.deepEqual(c.llmProviders, []);
+  assert.equal(c.redisUrl, null);
+  assert.equal(c.scoringMode, "both");
+  assert.equal(c.minSummaryScore, 30);
+  assert.equal(c.dependencyScan, true);
+  assert.equal(c.dryRun, false);
+  assert.equal(c.smtp.port, 465);
+  assert.equal(c.mailFrom, "u@x.com");
+
+  // One real key among the blanks is still picked up.
+  assert.deepEqual(loadConfig({ ...base, ...blank, GROQ_API_KEY: "k" }).llmProviders.map((p) => p.name), ["groq"]);
+});
