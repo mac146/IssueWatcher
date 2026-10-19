@@ -9,6 +9,11 @@ Besides your starred repos, IssueWatcher reads the `package.json` and `requireme
 
 Try it without sending anything: `DRY_RUN=true npm run dev` prints the ranked list.
 
+## What the email looks like
+![A digest email: each issue shows its repo, author, labels, title, an AI summary, a possible fix and a link to GitHub](docs/images/sample-email.png)
+
+Each entry has an AI summary and a possible fix. Newer versions also add a relevance score and a "why you're seeing this" line (for example "good first issue; unassigned; opened 3h ago"), and list lower-relevance issues compactly at the bottom. This screenshot was taken from an earlier version of the email.
+
 ## How it works
 1. Lists your starred repos and their open issues (fully paginated, with retry and rate-limit handling).
 2. Compares them against a local state file to find issues you have not been told about.
