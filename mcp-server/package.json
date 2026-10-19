@@ -24,7 +24,7 @@
     "axios": "^1.13.2",
     "dotenv": "^17.2.3",
     "ioredis": "^6.0.0",
-    "nodemailer": "^7.0.10"
+    "nodemailer": "^10.1.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
