@@ -1,7 +1,9 @@
 import type { Digest } from "./digest.js";
 import { logger } from "./logger.js";
 import type { Mailer } from "./mail/mailer.js";
-import { summarizeIssues, type Summarizer } from "./llm/summarizer.js";
+import { excerpt } from "./llm/extractive.js";
+import { summarizeCached, type SummaryCache } from "./llm/cache.js";
+import type { Summarizer } from "./llm/summarizer.js";
 import { pollOnce } from "./poller/poller.js";
 import type { Issue, IssueSource, RepoState, WatchTarget } from "./poller/types.js";
 import { rankIssues, type ScoringMode } from "./scoring/score.js";
@@ -16,6 +18,11 @@ export type WatcherDeps = {
   /** Everything to poll this cycle: starred repos plus dependency source repos. */
   targets: () => Promise<WatchTarget[]>;
   summarizer: Summarizer;
+  cache: SummaryCache;
+  maxBodyChars: number;
+  cacheTtlSeconds: number;
+  /** Fill missing AI summaries with a plain excerpt of the issue body. */
+  extractiveFallback: boolean;
   mailer: Mailer;
   store: StateStore;
   /** True for issues the user has chosen never to hear about. */
@@ -38,17 +45,24 @@ export type WatcherDeps = {
  */
 export async function buildDigest(
   polled: Array<{ issue: Issue; target: WatchTarget }>,
-  deps: Pick<WatcherDeps, "summarizer" | "concurrency" | "batchSize" | "minSummaryScore" | "maxIssuesPerEmail" | "scoringMode">,
+  deps: Pick<WatcherDeps, "summarizer" | "cache" | "maxBodyChars" | "cacheTtlSeconds" | "extractiveFallback" | "concurrency" | "batchSize" | "minSummaryScore" | "maxIssuesPerEmail" | "scoringMode">,
 ): Promise<Digest> {
   const ranked = rankIssues(polled, { mode: deps.scoringMode });
   const eligible = ranked.filter((r) => r.score >= deps.minSummaryScore);
   const toSummarize = eligible.slice(0, deps.maxIssuesPerEmail);
   const other = [...eligible.slice(deps.maxIssuesPerEmail), ...ranked.filter((r) => r.score < deps.minSummaryScore)];
 
-  const top = await summarizeIssues(toSummarize, deps.summarizer, {
+  const summarized = await summarizeCached(toSummarize, deps.summarizer, deps.cache, {
     concurrency: deps.concurrency,
     batchSize: deps.batchSize,
+    maxBodyChars: deps.maxBodyChars,
+    ttlSeconds: deps.cacheTtlSeconds,
   });
+  // AI summaries are cached above; excerpts are not, so they never outlive a quota outage.
+  const top = summarized.map((e) => ({
+    ...e,
+    summary: e.summary ?? (deps.extractiveFallback ? excerpt(e.issue) : null),
+  }));
   return { top, other: other.sort((a, b) => b.score - a.score) };
 }
 

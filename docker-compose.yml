@@ -1,0 +1,26 @@
+# Runs IssueWatcher with a Redis summary cache.
+#   cp mcp-server/.env.example mcp-server/.env   (fill it in)
+#   docker compose up -d
+services:
+  issue-watcher:
+    build: ./mcp-server
+    restart: unless-stopped
+    env_file: ./mcp-server/.env
+    environment:
+      REDIS_URL: redis://redis:6379
+    volumes:
+      - issue-watcher-data:/data
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # A lost cache only costs some LLM calls, so persistence is light.
+    command: ["redis-server", "--save", "60", "1", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis-data:/data
+
+volumes:
+  issue-watcher-data:
+  redis-data:

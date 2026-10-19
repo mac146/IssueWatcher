@@ -10,7 +10,7 @@ Status values: **Accepted**, **Superseded by D-xxx**, **Proposed** (needs the ow
 | D-002 | Silently seed repos seen for the first time | Accepted |
 | D-003 | Failed per-repo fetches keep the previous state | Accepted |
 | D-004 | Summaries degrade to "no summary" instead of failing the digest | Accepted (batching amended by D-015) |
-| D-005 | Gemini only, behind a `Summarizer` interface | Accepted |
+| D-005 | Gemini only, behind a `Summarizer` interface | Superseded by D-022 |
 | D-006 | Built-in `node:test` and Node >= 22 | Accepted |
 | D-007 | Dependency-injected I/O, pure poll logic | Accepted |
 | D-008 | Validated env config, fail fast at startup | Accepted |
@@ -27,6 +27,9 @@ Status values: **Accepted**, **Superseded by D-xxx**, **Proposed** (needs the ow
 | D-019 | DRY_RUN preview mode | Accepted |
 | D-020 | Scoring modes: consumer, contributor, both | Accepted (weights unvalidated) |
 | D-021 | Junk filter and test-work exception in scoring | Accepted |
+| D-022 | Provider-agnostic LLM layer with fallback | Accepted |
+| D-023 | Redis summary cache with in-memory fallback | Accepted |
+| D-024 | AI optional; excerpts when no summary available | Accepted |
 | D-020 | Scoring modes: consumer, contributor, both | Accepted (weights unvalidated) |
 
 ---
@@ -215,3 +218,26 @@ All signals use fields already returned by the issues endpoint (labels, assignee
 **Trade-off.** The non-English penalty assumes English-language repos; a reader who works comfortably in other languages may want it off. It is a fixed rule today and a candidate for a setting if anyone asks.
 
 **Live verification.** Contributor-mode run on the author's account: 23 new issues, 13 in the top tier, 10 compact. `gemini-2.5-flash` was out of daily quota (the circuit breaker in D-015 skipped summaries and the digest still went out), so the final email used `gemini-2.5-flash-lite`.
+
+## D-022: Provider-agnostic LLM layer with fallback (supersedes D-005)
+**Context.** D-005 kept Gemini as the only provider. A free-tier quota outage during testing, plus the goal of being usable by students without paid keys, called for letting users bring whichever LLM they have.
+
+**Decision.** A provider is just `complete(prompt) -> text`. Three wire protocols cover the market: Gemini (SDK), Anthropic (HTTP), and OpenAI-compatible HTTP, which also serves OpenAI, Groq, OpenRouter, and local servers such as Ollama via `CUSTOM_LLM_BASE_URL`. Prompting, rate limiting (per provider, since quotas are per key), retries and JSON parsing are shared above the provider (`LlmSummarizer`). Providers with keys are auto-detected in a fixed order, or ordered explicitly with `LLM_PROVIDERS`. `FallbackSummarizer` skips a provider that reports exhausted quota or a bad key and probes it again after the wait (capped at 1 hour); it reports quota exhaustion only when every provider is unavailable. No new SDKs: Anthropic and OpenAI-compatible calls use axios.
+
+**Parsing.** Models other than Gemini cannot be forced to a JSON schema portably, so the parser tolerates markdown fences, text around the JSON, and an object wrapping the array. A failed batch still falls back to per-issue calls (D-004).
+
+**Trade-offs and limits.** Only Gemini has been run against a live service; the others are tested against faked HTTP responses (request shape, headers, error mapping, fallback). Default model names for OpenAI, Anthropic, Groq and OpenRouter are best guesses that may be retired, so each is overridable. `LLM_RPM` is one value for all providers.
+
+## D-023: Redis summary cache with in-memory fallback
+**Decision.** Summaries are cached by a hash of repo, issue number, title and the truncated body (plus a format version), for 30 days by default, so each issue is summarised once and an edited issue is summarised again. Redis (`ioredis`) is used when `REDIS_URL` is set; otherwise, or if Redis cannot connect, an in-memory cache is used. Cache reads and writes never throw: a failing Redis is a miss and logs at most one warning per minute. Only finished AI summaries are cached; failures and excerpts are not, so they retry next cycle.
+
+**Why.** It saves quota now (a retry after a failed email re-summarises nothing) and is the shared-cost mechanism for a multi-user version later: one summary per issue regardless of how many people watch the repo. Cached summaries are also served when every provider is out of quota.
+
+**Verified live** against Redis 7: values stored with a TTL, hits after a reconnect, and a clean fall back to memory when Redis is unreachable. **Not done:** Redis is not used for watcher state (still a JSON file); `docker-compose.yml` runs the app with Redis but has not been run end to end.
+
+## D-024: AI is optional; excerpts when no summary is available
+**Decision.** No LLM key is a valid configuration. Missing AI summaries (no provider, or all providers out of quota) are replaced by a short excerpt of the issue body, labelled "Excerpt:", with code blocks, links, markup and template headings stripped. `EXTRACTIVE_FALLBACK=false` turns this off. Excerpts are never cached.
+
+**Why.** The digest's value is the ranking and the reasons; AI summaries are a bonus. A free, dependency-free fallback means the project works for a student with no budget and keeps working when quotas run out.
+
+**Limit.** An excerpt does not interpret the issue and offers no fix suggestion, which is why it is labelled differently from a summary.

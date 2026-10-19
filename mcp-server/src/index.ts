@@ -3,7 +3,9 @@ import { loadConfig, type Config } from "./config.js";
 import { CachedDiscovery, discoverDependencies } from "./deps/discovery.js";
 import { HttpRegistry } from "./deps/registry.js";
 import { GitHubAPI } from "./github/api.js";
-import { GeminiSummarizer, RateLimiter, type Summarizer } from "./llm/summarizer.js";
+import { createCache, MemoryCache } from "./llm/cache.js";
+import { buildSummarizer } from "./llm/factory.js";
+import { noSummarizer } from "./llm/provider.js";
 import { logger } from "./logger.js";
 import { renderText, SmtpMailer, type Mailer } from "./mail/mailer.js";
 import type { IssueSource, NewIssues } from "./poller/types.js";
@@ -40,9 +42,6 @@ function previewDeps(config: Config, github: GitHubAPI, targets: WatcherDeps["ta
       return { issues: await github.getRecentOpenIssues(owner, repo, config.previewPerRepo), highWater: 0 };
     },
   };
-  const summarizer: Summarizer = {
-    summarizeBatch: async (issues) => issues.map(() => "(preview: AI summary skipped)"),
-  };
   const mailer: Mailer = {
     async sendDigest(digest) {
       console.log(`\n${renderText(digest)}`);
@@ -50,7 +49,9 @@ function previewDeps(config: Config, github: GitHubAPI, targets: WatcherDeps["ta
   };
   return {
     source,
-    summarizer,
+    summarizer: noSummarizer,
+    cache: new MemoryCache(),
+    extractiveFallback: false,
     mailer,
     store: {
       // Every watched repo "was last seen at #0", so all fetched issues count as new.
@@ -65,15 +66,20 @@ async function main(): Promise<void> {
   const github = new GitHubAPI(config.githubToken);
   const targets = targetProvider(config, github);
 
+  const { summarizer, providerNames } = buildSummarizer(config);
+  const cache = config.dryRun ? new MemoryCache() : await createCache(config.redisUrl);
+  logger.info(
+    `AI: ${providerNames.length ? providerNames.join(" -> ") : "none (excerpts only)"}; summary cache: ${cache.kind}`,
+  );
+
   const deps: WatcherDeps = {
     source: github,
     targets,
-    summarizer: new GeminiSummarizer(
-      config.googleApiKey,
-      config.geminiModel,
-      config.maxBodyChars,
-      new RateLimiter(config.llmRequestsPerMinute),
-    ),
+    summarizer,
+    cache,
+    maxBodyChars: config.maxBodyChars,
+    cacheTtlSeconds: config.cacheTtlDays * 86_400,
+    extractiveFallback: config.extractiveFallback,
     mailer: new SmtpMailer(config),
     store: {
       load: () => loadState(config.stateFile),
@@ -87,27 +93,31 @@ async function main(): Promise<void> {
     maxIssuesPerEmail: config.maxIssuesPerEmail,
   };
 
-  if (config.dryRun) {
-    logger.info("DRY_RUN: ranking recent issues only; no LLM calls, email or state changes");
-    await runCycle({ ...deps, ...previewDeps(config, github, targets), dryRun: true });
-    return;
+  try {
+    if (config.dryRun) {
+      logger.info("DRY_RUN: ranking recent issues only; no LLM calls, email or state changes");
+      await runCycle({ ...deps, ...previewDeps(config, github, targets), dryRun: true });
+      return;
+    }
+
+    if (config.runOnce) {
+      await runCycle(deps);
+      return;
+    }
+
+    const controller = new AbortController();
+    const stop = (sig: string) => {
+      logger.info(`Received ${sig}, shutting down after the current cycle`);
+      controller.abort();
+    };
+    process.once("SIGINT", () => stop("SIGINT"));
+    process.once("SIGTERM", () => stop("SIGTERM"));
+
+    logger.info(`Watching every ${Math.round(config.pollIntervalMs / 60_000)} min`);
+    await watch(deps, config.pollIntervalMs, controller.signal);
+  } finally {
+    await cache.close();
   }
-
-  if (config.runOnce) {
-    await runCycle(deps);
-    return;
-  }
-
-  const controller = new AbortController();
-  const stop = (sig: string) => {
-    logger.info(`Received ${sig}, shutting down after the current cycle`);
-    controller.abort();
-  };
-  process.once("SIGINT", () => stop("SIGINT"));
-  process.once("SIGTERM", () => stop("SIGTERM"));
-
-  logger.info(`Watching every ${Math.round(config.pollIntervalMs / 60_000)} min`);
-  await watch(deps, config.pollIntervalMs, controller.signal);
 }
 
 main().catch((err) => {

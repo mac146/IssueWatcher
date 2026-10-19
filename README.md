@@ -12,13 +12,13 @@ Try it without sending anything: `DRY_RUN=true npm run dev` prints the ranked li
 ## How it works
 1. Lists your starred repos and their open issues (fully paginated, with retry and rate-limit handling).
 2. Compares them against a local state file to find issues you have not been told about.
-3. Summarises new issues with Gemini in batches (summary + possible fix per issue).
+3. Summarises new issues with the LLM of your choice in batches (summary + possible fix per issue), reusing cached summaries.
 4. Sends one HTML/plain-text email, then records the issues as seen.
 
 Behaviour worth knowing:
 - **No flood on first run.** A repo seen for the first time (including a newly starred one) is recorded silently; only issues opened afterwards are reported.
 - **No lost issues.** State is saved only after the email is delivered. If GitHub, Gemini or SMTP fails, the issues are retried next cycle. If only the summary fails, the issue is still emailed without one.
-- **Free-tier friendly.** Issues are summarised several per request, requests are rate-limited, and if Gemini reports exhausted quota the app stops calling it for that cycle and still sends the digest. Note the free `gemini-2.5-flash` tier allows only ~20 requests/day; `GEMINI_MODEL=gemini-2.5-flash-lite` is a verified alternative.
+- **Free-tier friendly.** Issues are summarised several per request, requests are rate-limited, summaries are cached, and if a provider runs out of quota the app switches to the next one. With none left, the digest still goes out with plain excerpts instead of AI summaries. The AI is optional: with no key at all the app works fully (ranking, reasons, links, excerpts). The free `gemini-2.5-flash` tier allows only about 20 requests/day; `GEMINI_MODEL=gemini-2.5-flash-lite` worked in testing.
 - **Bounded cost.** At most `MAX_ISSUES_PER_EMAIL` issues are summarised per digest (the rest are still listed), and issue bodies are truncated before being sent to the model.
 
 ## Setup
@@ -35,7 +35,6 @@ Copy `.env.example` to `.env` (in `mcp-server/`) and fill it in:
 ```env
 # Required
 GITHUB_TOKEN=ghp_xxx            # PAT; needs read access to your starred repos and their issues
-GOOGLE_API_KEY=xxx              # Gemini API key
 SMTP_USER=you@gmail.com
 SMTP_PASS=app-password          # for Gmail use an App Password
 MAIL_TO=you@example.com         # comma-separated for several recipients
@@ -45,7 +44,17 @@ SMTP_HOST=smtp.gmail.com
 SMTP_PORT=465
 SMTP_SECURE=true                # defaults to true when port is 465
 MAIL_FROM=                      # defaults to SMTP_USER
-GEMINI_MODEL=gemini-2.5-flash
+
+# AI summaries (optional): set any of these; keys that are set are tried in this order
+GOOGLE_API_KEY=                 # Gemini
+OPENAI_API_KEY=                 # OpenAI
+ANTHROPIC_API_KEY=              # Claude
+GROQ_API_KEY=                   # Groq
+OPENROUTER_API_KEY=             # OpenRouter
+CUSTOM_LLM_BASE_URL=            # any OpenAI-compatible server, e.g. Ollama http://localhost:11434/v1
+CUSTOM_LLM_MODEL=
+LLM_PROVIDERS=                  # optional explicit order, e.g. groq,gemini ("none" turns AI off)
+REDIS_URL=                      # optional, e.g. redis://localhost:6379 (summary cache)
 WATCH_INTERVAL=1800000          # ms between polls, minimum 60000 (default 30 min)
 STATE_FILE=data/state.json      # resolved relative to the working directory
 MAX_ISSUES_PER_EMAIL=50
@@ -57,12 +66,27 @@ MIN_SUMMARY_SCORE=30            # only issues scoring this high get an AI summar
 IGNORE_REPOS=                   # e.g. 100xdevs-*/*  (star wildcard)
 IGNORE_LABELS=                  # e.g. question,duplicate
 DRY_RUN=false                   # print the ranking only; no email, LLM or state change
-LLM_BATCH_SIZE=8                # issues summarised per Gemini request
-LLM_RPM=5                       # Gemini requests per minute (free tier is 5)
+LLM_BATCH_SIZE=8                # issues summarised per LLM request
+LLM_RPM=5                       # requests per minute per provider (5 suits free tiers)
 RUN_ONCE=false                  # true: run a single cycle and exit (handy for cron)
 ```
 
 Configuration is validated at startup; every missing or invalid variable is reported at once.
+
+## Choosing an AI provider
+| Provider | Key | Default model (override with `*_MODEL`) |
+| --- | --- | --- |
+| Gemini | `GOOGLE_API_KEY` | gemini-2.5-flash |
+| OpenAI | `OPENAI_API_KEY` | gpt-4o-mini |
+| Claude | `ANTHROPIC_API_KEY` | claude-haiku-5-5 |
+| Groq | `GROQ_API_KEY` | llama-3.3-70b-versatile |
+| OpenRouter | `OPENROUTER_API_KEY` | meta-llama/llama-3.3-70b-instruct:free |
+| Anything OpenAI-compatible (Ollama, LM Studio, vLLM) | `CUSTOM_LLM_BASE_URL` + `CUSTOM_LLM_MODEL` | yours |
+
+Use several to survive rate limits: the first one in order is used until it is rate-limited or out of quota, then the next takes over (and the first is retried after a while). Default model names change over time, so set `*_MODEL` if a default is retired. Only Gemini has been exercised against the live service; the others are covered by tests against faked HTTP responses.
+
+## Summary cache (Redis)
+Set `REDIS_URL` to cache finished summaries for 30 days (`CACHE_TTL_DAYS`). An issue is then summarised once, even across restarts, and cached summaries are still served when every provider is out of quota. If Redis is unreachable the app logs one warning and uses an in-memory cache. `docker compose up -d` starts the app together with Redis.
 
 ## Docker
 Build locally (a published image is planned for tagged releases):
@@ -101,7 +125,8 @@ mcp-server/src/
   watcher.ts         one poll cycle + non-overlapping scheduler
   github/api.ts      paginated GitHub client with retry/rate-limit handling
   poller/poller.ts   pure new-issue detection
-  llm/summarizer.ts  Gemini summaries with bounded concurrency
+  llm/               providers (Gemini, OpenAI-compatible, Claude), fallback chain,
+                     batching, summary cache (Redis/memory), excerpt fallback
   mail/mailer.ts     SMTP digest (HTML + text)
   utils/state.ts     atomic JSON state persistence
   __tests__/         node:test suites
@@ -109,4 +134,3 @@ mcp-server/src/
 
 ## Notes
 - Despite the repo's earlier naming, this is a standalone service and does not run an MCP server.
-- Only Gemini is supported as the LLM; the `Summarizer` interface in `llm/summarizer.ts` is the extension point for others.

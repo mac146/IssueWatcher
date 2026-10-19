@@ -3,6 +3,7 @@ import { test } from "node:test";
 import type { Digest } from "../digest.js";
 import type { RepoState } from "../poller/types.js";
 import { runCycle, type StateStore, type WatcherDeps } from "../watcher.js";
+import { MemoryCache } from "../llm/cache.js";
 import { fakeSource, issue, starred } from "./helpers.js";
 
 function setup(opts: { mailFails?: boolean; summaryFails?: boolean } = {}) {
@@ -27,6 +28,10 @@ function setup(opts: { mailFails?: boolean; summaryFails?: boolean } = {}) {
         sent.push(d);
       },
     },
+    cache: new MemoryCache(),
+    maxBodyChars: 4000,
+    cacheTtlSeconds: 3600,
+    extractiveFallback: false,
     store,
     ignore: () => false,
     concurrency: 2,
