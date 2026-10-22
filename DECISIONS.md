@@ -31,6 +31,8 @@ Status values: **Accepted**, **Superseded by D-xxx**, **Proposed** (needs the ow
 | D-023 | Redis summary cache with in-memory fallback | Accepted |
 | D-024 | AI optional; excerpts when no summary available | Accepted |
 | D-025 | Scheduled GitHub Actions run with state in the Actions cache | Accepted |
+| D-026 | Blind labelling evaluation for the ranking | Accepted (re-scoring by D-027) |
+| D-027 | Scoring fixes from reading a real digest; eval re-scores | Accepted |
 | D-020 | Scoring modes: consumer, contributor, both | Accepted (weights unvalidated) |
 
 ---
@@ -251,3 +253,28 @@ All signals use fields already returned by the issues endpoint (labels, assignee
 **Why the cache and not a state branch.** I first planned a dedicated branch, but in a public fork it would publish the dependency cache, which names the owner's repositories, including private ones scanned with the token. The Actions cache is private to the repository. **Trade-off:** caches can be evicted (after 7 days without access, or under storage pressure), unlike a branch. The failure mode is safe: the next run re-seeds silently, so nothing is re-sent, but issues opened during the gap are not reported. With a 3-hour schedule, eviction through inactivity is unlikely.
 
 **Limits.** Scheduled workflows run late, can be skipped under load, and are disabled after 60 days of repository inactivity; the README says so. A personal access token is required because the built-in token cannot read the user's stars; it is stored as a secret and never logged. Verified: `actionlint` passes on all workflows, and the run step was simulated locally with blank optional variables (dry run, real GitHub). **Verified on GitHub** in a throwaway private repository (a repo cannot be forked onto its own owner's account), with real GH_PAT and fake SMTP values so no email could be sent: a dry run passed and skipped the cache save as designed; a first real run seeded all 50 watched repos and saved the cache entry `issuewatcher-state-<run id>`; a second real run restored that entry through the restore-key prefix, logged no seeding and no dependency re-scan (both files came from the cache) and saved a fresh entry. **Not verified:** a run triggered by the schedule itself, behaviour after a cache eviction, and sending an email from Actions with real SMTP secrets.
+
+## D-026: Blind labelling evaluation for the ranking
+**Context.** D-018 and D-020 say the scoring weights are unvalidated guesses. Tuning them by eye on dry runs risks fitting my own impressions.
+
+**Decision.** `npm run eval:export` collects the newest open issues from every watched repo, draws a seeded random sample (default 100, de-duplicated), and writes `eval/labels.csv` with no scores and in shuffled order, plus the scores in a separate `eval/scores.json`. The user marks each issue `u` (useful) or `n` (noise) and leaves unsure ones blank. `npm run eval:report` then reports precision of the top 5, 10 and 20 against two baselines (newest-first, which is what GitHub shows, and random), the AUC (chance that a useful issue outranks a noise one), and, for each signal that appears in at least 5 labelled issues, the useful rate with and without it.
+
+**Why blind and random.** Seeing the score biases the label, and labelling only the top of the ranking cannot reveal what the ranking buries.
+
+**Limits.** One person's taste is not everyone's; the sample is only the newest few issues per repo, not the whole stream; with fewer than about 60 labels the signal-level numbers are noise (the report says so, and refuses to print numbers under 20). The report is diagnostic: it does not tune the weights automatically. Whoever changes the weights should re-label a fresh sample (a different seed) so the tuned weights are not graded on the issues they were tuned on.
+
+**Status.** The tooling is tested (107 tests) and a first sample has been generated, but no labels exist yet, so the ranking is still unvalidated.
+
+## D-027: Scoring fixes from reading a real digest; the evaluation re-scores
+**Context.** The first real contributor-mode digest (76 issues) showed five wrong signals: (1) body keywords firing on incidental text: "add a regression test" counted as a regression, PostgreSQL's PANIC log level as a panic, "built-in security headers" as security; (2) generic titles such as "Report a bug" ranking 55-60; (3) issues a contributor cannot take still ranking high: `status:team-assigned` labels, reporters saying they will send a PR or that a fix is already in a PR; (4) "has reproduction details" firing on empty template headings; (5) dev-dependency issues about newer versions than the user runs (left as is: they are real, open bugs).
+
+**Decision.**
+- Body severity ignores "regression test/suite/coverage" and no longer uses "panic" or "security" (the title and labels still may).
+- Generic titles ("Report a bug", "Bug report", "Not working", "Help", ...) count as a vague title (-20).
+- Contributor mode: a claimed-work label (team-assigned, in progress, has PR, claimed, WIP) is -20 "team already on it"; text such as "I can submit a PR", "a PR is already prepared", "assign this to me", or a fix tracked in #123 / a PR is -15 "a fix is already planned or open".
+- "Has reproduction details" needs at least 100 characters of real text besides headings.
+- `eval:report` re-scores the stored sample with the current code instead of reading frozen scores, so weight changes can be judged on the same labels. `eval:export` refuses to overwrite labelled sheets; `eval:rebuild` upgrades an older sheet by re-fetching its issues.
+
+**Effect, on the actual issues:** the real regression stayed first (80 to 80); the incidental-keyword issues dropped 8 points; "Report a bug" issues, team-assigned and already-claimed issues dropped 15-23 points.
+
+**Limits.** These are heuristics read off one digest and are still not validated by labels. "I can fix ..." phrasing can also describe a workaround, which would be penalised wrongly. Claimed-work labels are repository conventions, so only common spellings are matched. The re-scoring report is more convenient but makes over-fitting easy; confirm on a fresh sample.

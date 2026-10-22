@@ -1,4 +1,8 @@
-import type { DependencyMap } from "./deps/discovery.js";
+import path from "node:path";
+import type { Config } from "./config.js";
+import { CachedDiscovery, discoverDependencies, type DependencyMap } from "./deps/discovery.js";
+import { HttpRegistry } from "./deps/registry.js";
+import type { GitHubAPI } from "./github/api.js";
 import type { Repo, WatchTarget } from "./poller/types.js";
 
 /**
@@ -23,4 +27,25 @@ export function buildTargets(starred: Repo[], dependencies: DependencyMap): Watc
     byKey.set(key, { owner: owner!, name: name!, starred: false, dependencies: uses });
   }
   return [...byKey.values()];
+}
+
+const DEPENDENCY_TTL_MS = 24 * 3_600_000;
+
+/** Everything to poll: starred repos plus the source repos of the user's dependencies. */
+export function createTargetProvider(config: Config, github: GitHubAPI): () => Promise<WatchTarget[]> {
+  const discovery = config.dependencyScan
+    ? new CachedDiscovery(
+        () =>
+          discoverDependencies(github, new HttpRegistry(), {
+            repos: config.dependencyRepos,
+            maxRepos: config.maxDependencyRepos,
+            maxDependencies: config.maxDependencies,
+            activeWithinDays: 365,
+          }),
+        path.join(path.dirname(config.stateFile), "dependencies.json"),
+        DEPENDENCY_TTL_MS,
+      )
+    : null;
+
+  return async () => buildTargets(await github.getStarredRepos(), (await discovery?.get()) ?? {});
 }

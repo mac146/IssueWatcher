@@ -157,6 +157,17 @@ export class GitHubAPI implements IssueSource {
       .map((i) => toIssue(i, `${owner}/${repo}`));
   }
 
+  /** One issue by number, or null if it no longer exists or is a pull request. */
+  async getIssue(owner: string, repo: string, number: number): Promise<Issue | null> {
+    try {
+      const res = await this.get<RawIssue>(`/repos/${owner}/${repo}/issues/${number}`);
+      return res.data.pull_request ? null : toIssue(res.data, `${owner}/${repo}`);
+    } catch (err) {
+      if (axios.isAxiosError(err) && [404, 410].includes(err.response?.status ?? 0)) return null;
+      throw err;
+    }
+  }
+
   /** The user's own, non-fork, non-archived repos, most recently pushed first. */
   async listOwnRepos(): Promise<OwnRepo[]> {
     const raw = await this.paginate<RawRepo>(

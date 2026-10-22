@@ -157,3 +157,62 @@ test("asking for a regression test suite is not treated as a severe report", () 
   assert.ok(report.score > request.score);
   assert.ok(!request.reasons.some((r) => r.includes("regression")));
 });
+
+const NL = String.fromCharCode(10);
+const long = "The editor throws when the file is larger than two megabytes and the save button is pressed twice in a row.";
+
+test("incidental body words do not count: regression tests, PostgreSQL PANIC, security headers", () => {
+  const plain = scoreIssue(issue("a/b", 1, { body: long }), starred("a/b"), contrib);
+  for (const body of [
+    long + " Add a regression test to verify this behavior.",
+    long + " A client whose session ended with a FATAL or PANIC ErrorResponse is reused.",
+    long + " Register the CORS hook like the built-in security headers.",
+  ]) {
+    const r = scoreIssue(issue("a/b", 1, { body }), starred("a/b"), contrib);
+    assert.equal(r.score, plain.score, body);
+    assert.ok(!r.reasons.some((x) => x.startsWith("body mentions")), body);
+  }
+  // A real regression report in the body still counts, and the title still may say "panic" or "security".
+  assert.ok(scoreIssue(issue("a/b", 1, { body: long + " This is a regression from 1.2." }), starred("a/b"), contrib).score > plain.score);
+  assert.ok(scoreIssue(issue("a/b", 1, { title: "Panic when parsing a nested table" }), starred("a/b"), contrib).score > plain.score);
+});
+
+test("generic titles such as 'Report a bug' are treated as vague", () => {
+  const good = scoreIssue(issue("a/b", 1, { title: "Crash when saving a large file" }), starred("a/b"), contrib);
+  for (const title of ["Report a bug", "Bug report", "Feature request", "Not working", "Help!"]) {
+    const r = scoreIssue(issue("a/b", 1, { title }), starred("a/b"), contrib);
+    assert.ok(r.reasons.includes("vague title"), title);
+    assert.ok(r.score < good.score - 15, title);
+  }
+});
+
+test("contributor mode: work that is already taken ranks lower", () => {
+  const base = scoreIssue(issue("a/b", 1, { body: long }), starred("a/b"), contrib);
+
+  const team = scoreIssue(issue("a/b", 1, { body: long, labels: ["status:team-assigned"] }), starred("a/b"), contrib);
+  assert.ok(team.reasons.includes("team already on it") && team.score <= base.score - 20);
+
+  for (const body of [
+    long + " I'm open to implementing either fix.",
+    long + " I can submit a PR for this.",
+    long + " A PR is already prepared.",
+    long + " A fix for this is tracked in #4981.",
+    long + " The proposed fix is in GitHub PR #39224.",
+    long + " Please assign this to me.",
+  ]) {
+    const r = scoreIssue(issue("a/b", 1, { body }), starred("a/b"), contrib);
+    assert.ok(r.reasons.includes("a fix is already planned or open"), body);
+    assert.ok(r.score < base.score, body);
+  }
+
+  // Ordinary mentions of pull requests or "fix" do not trigger it.
+  const calm = scoreIssue(issue("a/b", 1, { body: long + " We should fix the docs. Related: see #12 for context." }), starred("a/b"), contrib);
+  assert.ok(!calm.reasons.includes("a fix is already planned or open"));
+});
+
+test("'has reproduction details' needs real text, not just template headings", () => {
+  const empty = ["### Steps to reproduce", "", "### Expected behavior", "", "### Actual behavior"].join(NL);
+  const real = ["### Steps to reproduce", "1. Open a file larger than two megabytes in the editor", "2. Press the save button twice in a row quickly", "Expected behavior: it saves. Actual behavior: it throws a RangeError and the file is lost."].join(NL);
+  assert.ok(!scoreIssue(issue("a/b", 1, { body: empty }), starred("a/b"), contrib).reasons.includes("has reproduction details"));
+  assert.ok(scoreIssue(issue("a/b", 1, { body: real }), starred("a/b"), contrib).reasons.includes("has reproduction details"));
+});

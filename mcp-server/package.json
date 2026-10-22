@@ -13,7 +13,10 @@
     "typecheck": "tsc --noEmit",
     "test": "npm run build && node --test \"build/__tests__/*.test.js\"",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "eval:export": "tsx src/eval/cli.ts export",
+    "eval:report": "tsx src/eval/cli.ts report",
+    "eval:rebuild": "tsx src/eval/cli.ts rebuild"
   },
   "keywords": [],
   "author": "",

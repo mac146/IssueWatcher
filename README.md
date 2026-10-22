@@ -97,6 +97,20 @@ How it behaves:
 
 Do not commit your `.env`, and keep your tokens in Secrets only.
 
+## Is the ranking any good? Measure it
+The scoring weights are educated guesses, so there is a built-in way to test them on your own watch list:
+
+```bash
+cd mcp-server
+npm run eval:export     # writes eval/labels.csv: 100 random recent issues, scores hidden
+# open eval/labels.csv, read each issue and put u (useful) or n (noise) in the label column
+npm run eval:report     # precision of the top 5/10/20 vs newest-first and random, AUC, and which signals help
+```
+
+Options: `-- --size=100 --per-repo=4 --seed=42`. Label at least 40 issues (100 is better) before trusting the numbers. The sample is random and shuffled and the CSV contains no scores, so your labels are not influenced by the ranking. Use the same `SCORING_MODE` you run day to day. The `eval/` folder is git-ignored.
+
+The report re-scores your labelled issues with the **current** code every time, so you can change the weights and re-run `eval:report` against the same labels. Export refuses to overwrite a sheet that already has labels (`--force` overrides). If your sheet was exported by an older version, run `npm run eval:rebuild` once; it re-fetches the issues and leaves your labels alone. Because tuned weights are then graded on issues they were tuned on, confirm any improvement on a fresh sample (`--seed=7`).
+
 ## Choosing an AI provider
 | Provider | Key | Default model (override with `*_MODEL`) |
 | --- | --- | --- |

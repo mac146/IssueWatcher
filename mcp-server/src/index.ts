@@ -1,7 +1,4 @@
-import path from "node:path";
 import { loadConfig, type Config } from "./config.js";
-import { CachedDiscovery, discoverDependencies } from "./deps/discovery.js";
-import { HttpRegistry } from "./deps/registry.js";
 import { GitHubAPI } from "./github/api.js";
 import { createCache, MemoryCache } from "./llm/cache.js";
 import { buildSummarizer } from "./llm/factory.js";
@@ -10,29 +7,9 @@ import { logger } from "./logger.js";
 import { renderText, SmtpMailer, type Mailer } from "./mail/mailer.js";
 import type { IssueSource, NewIssues } from "./poller/types.js";
 import { buildIgnore } from "./scoring/filters.js";
-import { buildTargets } from "./targets.js";
+import { createTargetProvider } from "./targets.js";
 import { loadState, saveState } from "./utils/state.js";
 import { runCycle, watch, type WatcherDeps } from "./watcher.js";
-
-const DEPENDENCY_TTL_MS = 24 * 3_600_000;
-
-function targetProvider(config: Config, github: GitHubAPI): WatcherDeps["targets"] {
-  const discovery = config.dependencyScan
-    ? new CachedDiscovery(
-        () =>
-          discoverDependencies(github, new HttpRegistry(), {
-            repos: config.dependencyRepos,
-            maxRepos: config.maxDependencyRepos,
-            maxDependencies: config.maxDependencies,
-            activeWithinDays: 365,
-          }),
-        path.join(path.dirname(config.stateFile), "dependencies.json"),
-        DEPENDENCY_TTL_MS,
-      )
-    : null;
-
-  return async () => buildTargets(await github.getStarredRepos(), (await discovery?.get()) ?? {});
-}
 
 /** Dry run: show the newest open issues per repo as if they were new; touch nothing. */
 function previewDeps(config: Config, github: GitHubAPI, targets: WatcherDeps["targets"]): Partial<WatcherDeps> {
@@ -64,7 +41,7 @@ function previewDeps(config: Config, github: GitHubAPI, targets: WatcherDeps["ta
 async function main(): Promise<void> {
   const config = loadConfig();
   const github = new GitHubAPI(config.githubToken);
-  const targets = targetProvider(config, github);
+  const targets = createTargetProvider(config, github);
 
   const { summarizer, providerNames } = buildSummarizer(config);
   const cache = config.dryRun ? new MemoryCache() : await createCache(config.redisUrl);

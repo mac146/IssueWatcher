@@ -11,7 +11,17 @@ export type Score = {
 export type ScoredIssue = Score & { issue: Issue; target: WatchTarget };
 
 const SEVERE = /\b(regression|crash(?:es|ed|ing)?|segfault|security|vulnerab\w*|cve-\d+|data loss|memory leak|breaking change|deadlock|panic)\b/i;
-const LABEL_SEVERE = /(regression|security|critical|crash|breaking|p0|priority[: -]*high|severity[: -]*high)/i;
+// In free text, "panic" is usually a PostgreSQL/Go log level and "security" a feature name, so only the
+// title and labels get to claim them; the body must say something more specific.
+const SEVERE_BODY = /\b(regression|crash(?:es|ed|ing)?|segfault|vulnerab\w*|cve-\d+|data loss|memory leak|breaking change|deadlock)\b/i;
+// "Add a regression test" asks for tests; it does not report a regression.
+const REGRESSION_TEST = /\bregression[- ](?:tests?|suites?|coverage|specs?|cases?)\b/gi;
+const GENERIC_TITLE = /^(?:report (?:a )?bug|bug(?: report)?|new issue|issue|help|question|feature request|test|testing|hello|hi|problem|error|not working)[.!?\s]*$/i;
+// The work is already taken, or the reporter is doing it.
+const LABEL_CLAIMED = /(team[: -]*assigned|in[ -]?progress|has[ -]?pr|pr[ -]?(?:open|submitted|ready)|claimed|\bwip\b)/i;
+const REPORTER_FIXING = /(?:i(?:'ll| will| can| could|'m going to| am going to|'m happy to| am happy to|'m willing to| am willing to|'m open to| am open to| would like to|'d like to| want to)\s+(?:also\s+)?(?:work on|submit|open|send|create|raise|make|take|fix|implement|contribute)|(?:pr|pull request)\s+(?:is\s+)?(?:already\s+)?(?:ready|prepared|coming|incoming|submitted|opened)|already (?:have|opened|prepared|submitted)|assign(?: this)? to me|can i (?:work on|take))/i;
+const FIX_IN_PR = /\b(?:fix(?:ed|es)?|tracked|proposed|addressed)\b[^.\n]{0,40}(?:#\d+|\bPR\b|pull request)/i;
+const LABEL_SEVERE =/(regression|security|critical|crash|breaking|p0|priority[: -]*high|severity[: -]*high)/i;
 const LABEL_BUG = /\bbug\b/i;
 const LABEL_NOISE = /\b(question|support|docs?|documentation|stale|discussion)\b/i;
 // A contributor happily takes docs work; only genuine non-tasks count as noise for them.
@@ -113,13 +123,12 @@ export function scoreIssue(issue: Issue, target: WatchTarget, opts: ScoreOptions
 
   // Severity signals.
   let severity = 0;
-  // "Add a regression test suite" asks for tests; it does not report a regression.
   const titleHit = TEST_WORK.test(issue.title) ? null : issue.title.match(SEVERE);
   if (titleHit) {
     severity += 20;
     reasons.push(`title says "${titleHit[0].toLowerCase()}"`);
   } else {
-    const bodyHit = issue.body.slice(0, 4000).match(SEVERE);
+    const bodyHit = issue.body.slice(0, 4000).replace(REGRESSION_TEST, " ").match(SEVERE_BODY);
     if (bodyHit) {
       severity += 8;
       reasons.push(`body mentions "${bodyHit[0].toLowerCase()}"`);
@@ -154,7 +163,7 @@ export function scoreIssue(issue: Issue, target: WatchTarget, opts: ScoreOptions
 
   // Junk filter: low-effort titles are rarely a task anyone can act on.
   const title = issue.title.trim();
-  if (title.length < 10 || !/\s/.test(title)) {
+  if (title.length < 10 || !/\s/.test(title) || GENERIC_TITLE.test(title)) {
     score -= 20;
     reasons.push("vague title");
   } else if (nonLatinShare(title) > 0.5) {
@@ -199,6 +208,15 @@ export function scoreIssue(issue: Issue, target: WatchTarget, opts: ScoreOptions
       reasons.push(ageH < 1 ? "opened just now" : `opened ${Math.floor(ageH)}h ago`);
     }
 
+    // Work that is already taken is not something to pick up.
+    if (LABEL_CLAIMED.test(labels)) {
+      score -= 20;
+      reasons.push("team already on it");
+    } else if (REPORTER_FIXING.test(issue.body) || FIX_IN_PR.test(issue.body)) {
+      score -= 15;
+      reasons.push("a fix is already planned or open");
+    }
+
     if (issue.comments >= 10) {
       score -= 5;
       reasons.push(`crowded (${issue.comments} comments)`);
@@ -207,7 +225,9 @@ export function scoreIssue(issue: Issue, target: WatchTarget, opts: ScoreOptions
       reasons.push("few comments");
     }
 
-    if (REPRO.test(issue.body)) {
+    // Template headings alone ("### Steps to reproduce") must not count: require real text around them.
+    const substance = issue.body.replace(/^#{1,6}.*$/gm, "").replace(/\s+/g, " ").trim();
+    if (REPRO.test(issue.body) && substance.length >= 100) {
       score += 5;
       reasons.push("has reproduction details");
     } else if (issue.body.trim().length >= 200) {
