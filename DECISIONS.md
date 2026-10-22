@@ -14,7 +14,7 @@ Status values: **Accepted**, **Superseded by D-xxx**, **Proposed** (needs the ow
 | D-006 | Built-in `node:test` and Node >= 22 | Accepted |
 | D-007 | Dependency-injected I/O, pure poll logic | Accepted |
 | D-008 | Validated env config, fail fast at startup | Accepted |
-| D-009 | MIT license | Proposed |
+| D-009 | MIT license | Accepted |
 | D-010 | Container image design | Accepted |
 | D-011 | CI, release and dependency-update automation | Accepted |
 | D-012 | Rename package; keep the `mcp-server/` folder for now | Accepted |
@@ -99,14 +99,14 @@ Status values: **Accepted**, **Superseded by D-xxx**, **Proposed** (needs the ow
 
 **Consequences.** Breaking change for existing `.env` files (`MAIL_TO` is new). Documented in the README and `.env.example`. The dotenv startup banner is disabled (`quiet`) so container logs stay clean.
 
-## D-009: MIT license (Proposed)
+## D-009: MIT license
 **Context.** With no license, nobody can legally use, fork or contribute to the project, which blocks the whole "make it public" goal.
 
 **Decision.** MIT, copyright "Mayank Kumar Singh", year 2025.
 
 **Alternatives.** Apache-2.0 (adds an explicit patent grant, a bit heavier); AGPL-3.0 (protects a future hosted offering from being re-hosted by others, but deters corporate contributors and users).
 
-**Needs confirmation.** The owner should confirm the license and the copyright name/year. If a hosted paid tier is planned, this is the moment to weigh AGPL or an open-core split, because changing the license later is painful once others contribute.
+**Confirmed by the owner on 2026-10-22: MIT, copyright "Mayank Kumar Singh".** Originally flagged for confirmation: The owner should confirm the license and the copyright name/year. If a hosted paid tier is planned, this is the moment to weigh AGPL or an open-core split, because changing the license later is painful once others contribute.
 
 ## D-010: Container image design
 **Decision.** Multi-stage build on `node:22-alpine`.
