@@ -222,7 +222,8 @@ export function loadConfig(env: Env = process.env): Config {
     maxDependencyRepos: int(env, "MAX_DEPENDENCY_REPOS", 20, 1, errors),
     maxDependencies: int(env, "MAX_DEPENDENCIES", 100, 1, errors),
     scoringMode,
-    minSummaryScore: int(env, "MIN_SUMMARY_SCORE", 30, 0, errors),
+    // In contributor mode every starred-repo issue scores at least ~33, so 30 would filter nothing.
+    minSummaryScore: int(env, "MIN_SUMMARY_SCORE", scoringMode === "contributor" ? 45 : 30, 0, errors),
     ignoreRepos: list(env.IGNORE_REPOS),
     ignoreLabels: list(env.IGNORE_LABELS),
     dryRun,

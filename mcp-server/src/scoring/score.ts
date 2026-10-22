@@ -20,7 +20,10 @@ const GENERIC_TITLE = /^(?:report (?:a )?bug|bug(?: report)?|new issue|issue|hel
 // The work is already taken, or the reporter is doing it.
 const LABEL_CLAIMED = /(team[: -]*assigned|in[ -]?progress|has[ -]?pr|pr[ -]?(?:open|submitted|ready)|claimed|\bwip\b)/i;
 const REPORTER_FIXING = /(?:i(?:'ll| will| can| could|'m going to| am going to|'m happy to| am happy to|'m willing to| am willing to|'m open to| am open to| would like to|'d like to| want to)\s+(?:also\s+)?(?:work on|submit|open|send|create|raise|make|take|fix|implement|contribute)|(?:pr|pull request)\s+(?:is\s+)?(?:already\s+)?(?:ready|prepared|coming|incoming|submitted|opened)|already (?:have|opened|prepared|submitted)|assign(?: this)? to me|can i (?:work on|take))/i;
-const FIX_IN_PR = /\b(?:fix(?:ed|es)?|tracked|proposed|addressed)\b[^.\n]{0,40}(?:#\d+|\bPR\b|pull request)/i;
+// Only phrases that say THIS issue is being fixed. "Similar to the fix in #123" or "fixes like #64668" must not match.
+const FIX_IN_PR = /\b(?:(?:fix(?:ed)?|addressed|resolved)\s+(?:in|by)\s+(?:(?:github\s+)?(?:pr|pull request)\s*)?#\d+|(?:tracked|proposed fix is|fix is|a fix is|pr is|pr)\s+(?:in|at)\s+(?:(?:github\s+)?(?:pr|pull request)\s*)?#\d+)/i;
+// The reporter is already writing the fix: "I'm opening a PR", "preparing a pull request", "working on a fix".
+const REPORTER_WRITING = /\b(?:i(?:'m| am)|we(?:'re| are)|currently)\s+(?:also\s+)?(?:opening|preparing|submitting|sending|working on|writing|drafting)\s+(?:a\s+|the\s+|my\s+)?(?:\w+\s+){0,2}?(?:pr|pull request|patch|fix)\b|\b(?:opening|preparing|submitting)\s+(?:a\s+)?(?:\w+\s+){0,2}?(?:pr|pull request)\b/i;
 const LABEL_SEVERE =/(regression|security|critical|crash|breaking|p0|priority[: -]*high|severity[: -]*high)/i;
 const LABEL_BUG = /\bbug\b/i;
 const LABEL_NOISE = /\b(question|support|docs?|documentation|stale|discussion)\b/i;
@@ -67,8 +70,18 @@ export function scoreIssue(issue: Issue, target: WatchTarget, opts: ScoreOptions
   let score = 0;
 
   // Why we watch this repo at all.
-  const runtime = target.dependencies.find((d) => d.kind === "runtime");
-  const dev = target.dependencies.find((d) => d.kind === "dev");
+  // DefinitelyTyped holds the types for every package, so only issues about a @types package the user
+  // actually depends on are about their code: "[@types/sinon] ..." says nothing about @types/express.
+  let deps = target.dependencies;
+  const typesFor =
+    issue.repo.toLowerCase() === "definitelytyped/definitelytyped"
+      ? issue.title.match(/@types\/([\w.-]+)/i)?.[1]?.toLowerCase()
+      : undefined;
+  const typesMismatch = Boolean(typesFor) && !deps.some((d) => d.pkg.toLowerCase() === `@types/${typesFor}`);
+  if (typesFor) deps = deps.filter((d) => d.pkg.toLowerCase() === `@types/${typesFor}`);
+
+  const runtime = deps.find((d) => d.kind === "runtime");
+  const dev = deps.find((d) => d.kind === "dev");
   // Dev tooling matters less than what ships: damp its version, severity and attention signals.
   const devOnly = !runtime && Boolean(dev);
   const consumer = mode !== "contributor";
@@ -85,7 +98,11 @@ export function scoreIssue(issue: Issue, target: WatchTarget, opts: ScoreOptions
     score += runtime || dev ? 5 : contributor ? 30 : 20;
     if (!runtime && !dev) reasons.push("starred repo");
   }
-  const sharedBy = Math.max(0, ...target.dependencies.map((d) => d.usedBy.length));
+  if (typesMismatch) {
+    score -= 25;
+    reasons.push(`types for ${typesFor}, which you do not use`);
+  }
+  const sharedBy = Math.max(0, ...deps.map((d) => d.usedBy.length));
   if (sharedBy >= 2) {
     score += 5;
     reasons.push(`used by ${sharedBy} of your repos`);
@@ -96,7 +113,7 @@ export function scoreIssue(issue: Issue, target: WatchTarget, opts: ScoreOptions
   const versions = mentionedVersions(text);
   if (consumer && versions.length) {
     let best: { points: number; reason: string } | null = null;
-    for (const dep of target.dependencies) {
+    for (const dep of deps) {
       const mine = minVersion(dep.range);
       if (!mine) continue;
       for (const v of versions) {
@@ -212,7 +229,7 @@ export function scoreIssue(issue: Issue, target: WatchTarget, opts: ScoreOptions
     if (LABEL_CLAIMED.test(labels)) {
       score -= 20;
       reasons.push("team already on it");
-    } else if (REPORTER_FIXING.test(issue.body) || FIX_IN_PR.test(issue.body)) {
+    } else if (REPORTER_FIXING.test(issue.body) || REPORTER_WRITING.test(issue.body) || FIX_IN_PR.test(issue.body)) {
       score -= 15;
       reasons.push("a fix is already planned or open");
     }

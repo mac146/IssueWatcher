@@ -86,3 +86,10 @@ test("empty strings, which is how GitHub Actions passes unset secrets and variab
   // One real key among the blanks is still picked up.
   assert.deepEqual(loadConfig({ ...base, ...blank, GROQ_API_KEY: "k" }).llmProviders.map((p) => p.name), ["groq"]);
 });
+
+test("the summary threshold defaults per scoring mode and an explicit value wins", () => {
+  assert.equal(loadConfig({ ...base, SCORING_MODE: "contributor" }).minSummaryScore, 45);
+  assert.equal(loadConfig({ ...base, SCORING_MODE: "consumer" }).minSummaryScore, 30);
+  assert.equal(loadConfig(base).minSummaryScore, 30);
+  assert.equal(loadConfig({ ...base, SCORING_MODE: "contributor", MIN_SUMMARY_SCORE: "20" }).minSummaryScore, 20);
+});

@@ -216,3 +216,55 @@ test("'has reproduction details' needs real text, not just template headings", (
   assert.ok(!scoreIssue(issue("a/b", 1, { body: empty }), starred("a/b"), contrib).reasons.includes("has reproduction details"));
   assert.ok(scoreIssue(issue("a/b", 1, { body: real }), starred("a/b"), contrib).reasons.includes("has reproduction details"));
 });
+
+const longBody = "The editor throws when the file is larger than two megabytes and the save button is pressed twice in a row.";
+
+test("a fix mentioned for a DIFFERENT issue does not count as this one being fixed", () => {
+  const base = scoreIssue(issue("a/b", 1, { body: longBody }), starred("a/b"), contrib);
+  const other = scoreIssue(
+    issue("a/b", 1, { body: longBody + " Extend existing fixes for similar panic issues (like #64668) to cover this." }),
+    starred("a/b"),
+    contrib,
+  );
+  assert.ok(!other.reasons.includes("a fix is already planned or open"));
+  assert.equal(other.score, base.score);
+  // These do mean this issue is being fixed.
+  for (const body of [longBody + " Fixed in #4981.", longBody + " This is fixed by PR #12.", longBody + " The proposed fix is in GitHub PR #39224."]) {
+    assert.ok(scoreIssue(issue("a/b", 1, { body }), starred("a/b"), contrib).reasons.includes("a fix is already planned or open"), body);
+  }
+});
+
+test("a reporter who says they are opening or preparing a PR is flagged", () => {
+  for (const body of [
+    longBody + " I'm opening a pull request for this.",
+    longBody + " I am preparing a PR with the fix.",
+    longBody + " We are working on a fix and will send it soon.",
+    longBody + " I'm opening a small PR that turns these into usage errors.",
+  ]) {
+    assert.ok(scoreIssue(issue("a/b", 1, { body }), starred("a/b"), contrib).reasons.includes("a fix is already planned or open"), body);
+  }
+});
+
+const dt = (title: string) => issue("DefinitelyTyped/DefinitelyTyped", 7, { title, body: longBody });
+const dtTarget = (...pkgs: string[]): WatchTarget => ({
+  owner: "DefinitelyTyped",
+  name: "DefinitelyTyped",
+  starred: false,
+  dependencies: pkgs.map((pkg) => ({ ecosystem: "npm" as const, pkg, range: "^5.0.0", kind: "dev" as const, usedBy: ["me/app"] })),
+});
+
+test("DefinitelyTyped: only issues about a @types package you use are relevant", () => {
+  const target = dtTarget("@types/express", "@types/node");
+  const mine = scoreIssue(dt("[@types/express] req.query is typed wrong"), target, contrib);
+  const notMine = scoreIssue(dt("[@types/sinon] 22.0.1 breaks named imports under ESM"), target, contrib);
+
+  assert.ok(mine.reasons.some((r) => r.includes("@types/express")));
+  assert.ok(notMine.reasons.includes("types for sinon, which you do not use"));
+  assert.ok(!notMine.reasons.some((r) => r.includes("@types/express")), "must not credit an unrelated dependency");
+  assert.ok(mine.score > notMine.score);
+  assert.equal(notMine.score, 0); // 15 points of base signals minus 25, clamped at zero
+
+  // No package named in the title: neutral, the other dependencies still apply.
+  const generic = scoreIssue(dt("Tests fail on Windows when path contains spaces"), target, contrib);
+  assert.ok(!generic.reasons.some((r) => r.includes("do not use")));
+});

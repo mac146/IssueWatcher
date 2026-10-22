@@ -33,6 +33,7 @@ Status values: **Accepted**, **Superseded by D-xxx**, **Proposed** (needs the ow
 | D-025 | Scheduled GitHub Actions run with state in the Actions cache | Accepted |
 | D-026 | Blind labelling evaluation for the ranking | Accepted (re-scoring by D-027) |
 | D-027 | Scoring fixes from reading a real digest; eval re-scores | Accepted |
+| D-028 | Second round of scoring fixes; mode-aware summary threshold | Accepted |
 | D-020 | Scoring modes: consumer, contributor, both | Accepted (weights unvalidated) |
 
 ---
@@ -278,3 +279,15 @@ All signals use fields already returned by the issues endpoint (labels, assignee
 **Effect, on the actual issues:** the real regression stayed first (80 to 80); the incidental-keyword issues dropped 8 points; "Report a bug" issues, team-assigned and already-claimed issues dropped 15-23 points.
 
 **Limits.** These are heuristics read off one digest and are still not validated by labels. "I can fix ..." phrasing can also describe a workaround, which would be penalised wrongly. Claimed-work labels are repository conventions, so only common spellings are matched. The re-scoring report is more convenient but makes over-fitting easy; confirm on a fresh sample.
+
+## D-028: Second round of scoring fixes; mode-aware summary threshold
+**Context.** The final end-to-end digest (22 issues) still showed four problems: (1) a TypeScript panic report was marked "a fix is already planned" because its body said "extend existing fixes for similar panic issues (like #64668)", which refers to a different issue; (2) composio#5032, where the reporter wrote "I'm opening a small PR", was not flagged because the pattern did not allow an adjective between "a" and "PR"; (3) a DefinitelyTyped issue about `@types/sinon` was credited as "dev dependency @types/express", because that monorepo maps every `@types/*` package to one repository; (4) all 22 issues were "worth a look" and the compact list was empty, because in contributor mode nothing scores below about 33, so `MIN_SUMMARY_SCORE=30` filtered nothing.
+
+**Decision.**
+- "A fix is already open" now requires wording that ties a PR or issue number to this issue ("fixed in #123", "proposed fix is in PR #123", "tracked in #123"); loose "fix ... #123" proximity no longer counts. Reporter phrases cover "I'm/we are opening/preparing/submitting/working on (a small) PR/fix".
+- DefinitelyTyped issues whose title names a `@types/x` package are matched against the user's dependencies: the matching dependency is credited, and a package the user does not use gets -25 ("types for x, which you do not use") with no credit from unrelated dependencies. Titles that name no package are unaffected.
+- `MIN_SUMMARY_SCORE` defaults to 45 in contributor mode and 30 otherwise; an explicit value always wins.
+
+**Effect on the real issues:** TypeScript#64895 33 to 48 (no longer wrongly penalised); composio#5032 60 to 45; DefinitelyTyped#75803 46 to 13; the controls (composio#5022 at 70, pymupdf#5200 at 65) did not move.
+
+**Limits.** The DefinitelyTyped rule is specific to that one repository. Phrase lists will keep missing wording (see the "small PR" miss), so they need the labelled evaluation to be tuned systematically rather than one digest at a time.
