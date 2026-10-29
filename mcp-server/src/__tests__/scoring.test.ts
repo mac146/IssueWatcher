@@ -268,3 +268,19 @@ test("DefinitelyTyped: only issues about a @types package you use are relevant",
   const generic = scoreIssue(dt("Tests fail on Windows when path contains spaces"), target, contrib);
   assert.ok(!generic.reasons.some((r) => r.includes("do not use")));
 });
+
+test("a severity word inside a file path is not a severity signal", () => {
+  const plain = scoreIssue(issue("a/b", 1, { title: "Dead link in docs README", body: longBody }), starred("a/b"), contrib);
+  for (const title of [
+    "Dead link in security/sca/README.md",
+    "Broken import in src/crash/handler.ts",
+    "Typo in docs\\security\\policy.md",
+  ]) {
+    const r = scoreIssue(issue("a/b", 1, { title, body: longBody }), starred("a/b"), contrib);
+    assert.ok(!r.reasons.some((x) => x.startsWith("title says")), title);
+    assert.equal(r.score, plain.score, title);
+  }
+  // The same words outside a path still count.
+  assert.ok(scoreIssue(issue("a/b", 1, { title: "Security hole in login", body: longBody }), starred("a/b"), contrib).score > plain.score);
+  assert.ok(scoreIssue(issue("a/b", 1, { title: "Crash in src/main.ts on startup", body: longBody }), starred("a/b"), contrib).score > plain.score);
+});

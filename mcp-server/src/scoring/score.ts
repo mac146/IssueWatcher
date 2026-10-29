@@ -8,6 +8,19 @@ export type Score = {
   reasons: string[];
 };
 
+/** One signal's contribution to a score. The parts of a `DetailedScore` sum to its `raw` value. */
+export type ScorePart = {
+  /** Stable machine-readable key, e.g. "unassigned" or "severity-cap". */
+  signal: string;
+  points: number;
+  reason: string;
+};
+
+export type DetailedScore = Score & {
+  /** Every signal that added or removed points, in the order they were applied. */
+  breakdown: ScorePart[];
+};
+
 export type ScoredIssue = Score & { issue: Issue; target: WatchTarget };
 
 const SEVERE = /\b(regression|crash(?:es|ed|ing)?|segfault|security|vulnerab\w*|cve-\d+|data loss|memory leak|breaking change|deadlock|panic)\b/i;
@@ -55,30 +68,52 @@ function mentionedVersions(text: string): Array<{ major: number; minor: number }
   return out;
 }
 
-/**
- * Rule-based relevance. Deliberately transparent: every point added or removed
- * comes with a reason, so users can see (and we can tune) why an issue ranked
- * where it did. See DECISIONS.md D-018.
- */
 export type ScoringMode = "consumer" | "contributor" | "both";
 export type ScoreOptions = { mode?: ScoringMode; now?: number };
 
-export function scoreIssue(issue: Issue, target: WatchTarget, opts: ScoreOptions = {}): Score {
-  const mode = opts.mode ?? "both";
-  const now = opts.now ?? Date.now();
-  const reasons: string[] = [];
-  let score = 0;
-
-  // Why we watch this repo at all.
-  // DefinitelyTyped holds the types for every package, so only issues about a @types package the user
-  // actually depends on are about their code: "[@types/sinon] ..." says nothing about @types/express.
-  let deps = target.dependencies;
+/**
+ * The user's dependencies that this issue is actually about. DefinitelyTyped holds the types
+ * for every package, so only an issue about a @types package the user depends on is about
+ * their code: "[@types/sinon] ..." says nothing about @types/express.
+ */
+export function relevantDependencies(
+  issue: Pick<Issue, "repo" | "title">,
+  target: WatchTarget,
+): { deps: WatchTarget["dependencies"]; typesFor: string | undefined; typesMismatch: boolean } {
   const typesFor =
     issue.repo.toLowerCase() === "definitelytyped/definitelytyped"
       ? issue.title.match(/@types\/([\w.-]+)/i)?.[1]?.toLowerCase()
       : undefined;
-  const typesMismatch = Boolean(typesFor) && !deps.some((d) => d.pkg.toLowerCase() === `@types/${typesFor}`);
-  if (typesFor) deps = deps.filter((d) => d.pkg.toLowerCase() === `@types/${typesFor}`);
+  if (!typesFor) return { deps: target.dependencies, typesFor, typesMismatch: false };
+
+  const deps = target.dependencies.filter((d) => d.pkg.toLowerCase() === `@types/${typesFor}`);
+  return { deps, typesFor, typesMismatch: deps.length === 0 };
+}
+
+/**
+ * Rule-based relevance. Deliberately transparent: every point added or removed
+ * comes with a reason, so users can see (and we can tune) why an issue ranked
+ * where it did. See DECISIONS.md D-018.
+ *
+ * Every change to the score goes through `add`, which records it, so the
+ * `breakdown` always sums to the unclamped score.
+ */
+export function scoreIssueDetailed(issue: Issue, target: WatchTarget, opts: ScoreOptions = {}): DetailedScore {
+  const mode = opts.mode ?? "both";
+  const now = opts.now ?? Date.now();
+  const reasons: string[] = [];
+  const breakdown: ScorePart[] = [];
+  let score = 0;
+
+  /** Applies points; `reason` is shown to the user, `note` only appears in the breakdown. */
+  const add = (points: number, signal: string, reason?: string, note?: string) => {
+    score += points;
+    if (reason) reasons.push(reason);
+    breakdown.push({ signal, points, reason: reason ?? note ?? signal });
+  };
+
+  // Why we watch this repo at all.
+  const { deps, typesFor, typesMismatch } = relevantDependencies(issue, target);
 
   const runtime = deps.find((d) => d.kind === "runtime");
   const dev = deps.find((d) => d.kind === "dev");
@@ -87,25 +122,21 @@ export function scoreIssue(issue: Issue, target: WatchTarget, opts: ScoreOptions
   const consumer = mode !== "contributor";
   const contributor = mode !== "consumer";
   if (runtime) {
-    score += consumer ? 40 : 15;
-    reasons.push(`you depend on ${runtime.pkg} (${runtime.range})`);
+    add(consumer ? 40 : 15, "dependency-runtime", `you depend on ${runtime.pkg} (${runtime.range})`);
   } else if (dev) {
-    score += consumer ? 25 : 8;
-    reasons.push(`dev dependency ${dev.pkg} (${dev.range})`);
+    add(consumer ? 25 : 8, "dependency-dev", `dev dependency ${dev.pkg} (${dev.range})`);
   }
   if (target.starred) {
     // A contributor stars what they want to work on, so a star is a strong signal, not a weak one.
-    score += runtime || dev ? 5 : contributor ? 30 : 20;
-    if (!runtime && !dev) reasons.push("starred repo");
+    if (runtime || dev) add(5, "starred", undefined, "you also starred this repo");
+    else add(contributor ? 30 : 20, "starred", "starred repo");
   }
   if (typesMismatch) {
-    score -= 25;
-    reasons.push(`types for ${typesFor}, which you do not use`);
+    add(-25, "types-mismatch", `types for ${typesFor}, which you do not use`);
   }
   const sharedBy = Math.max(0, ...deps.map((d) => d.usedBy.length));
   if (sharedBy >= 2) {
-    score += 5;
-    reasons.push(`used by ${sharedBy} of your repos`);
+    add(5, "shared-dependency", `used by ${sharedBy} of your repos`);
   }
 
   // Does the report concern a version the user runs?
@@ -133,127 +164,126 @@ export function scoreIssue(issue: Issue, target: WatchTarget, opts: ScoreOptions
       }
     }
     if (best) {
-      score += best.points;
-      reasons.push(best.reason);
+      add(best.points, "version-match", best.reason);
     }
   }
 
-  // Severity signals.
+  // Severity signals. Each is recorded individually; the total is capped afterwards.
   let severity = 0;
-  const titleHit = TEST_WORK.test(issue.title) ? null : issue.title.match(SEVERE);
+  const sevParts: ScorePart[] = [];
+  const sev = (points: number, signal: string, reason: string) => {
+    severity += points;
+    reasons.push(reason);
+    sevParts.push({ signal, points, reason });
+  };
+  // A word inside a file path ("security/sca/README.md") names a folder, not a problem.
+  const titleText = issue.title.replace(/\S*[\\/]\S*/g, " ");
+  const titleHit = TEST_WORK.test(issue.title) ? null : titleText.match(SEVERE);
   if (titleHit) {
-    severity += 20;
-    reasons.push(`title says "${titleHit[0].toLowerCase()}"`);
+    sev(20, "severity-title", `title says "${titleHit[0].toLowerCase()}"`);
   } else {
     const bodyHit = issue.body.slice(0, 4000).replace(REGRESSION_TEST, " ").match(SEVERE_BODY);
     if (bodyHit) {
-      severity += 8;
-      reasons.push(`body mentions "${bodyHit[0].toLowerCase()}"`);
+      sev(8, "severity-body", `body mentions "${bodyHit[0].toLowerCase()}"`);
     }
   }
   const labels = issue.labels.join(" | ");
   if (LABEL_SEVERE.test(labels)) {
-    severity += 20;
-    reasons.push("severe label");
+    sev(20, "severity-label", "severe label");
   } else if (LABEL_BUG.test(labels)) {
-    severity += 10;
-    reasons.push("labelled bug");
+    sev(10, "bug-label", "labelled bug");
   }
-  score += Math.min(severity, devOnly ? 10 : 30);
+  const severityCap = devOnly ? 10 : 30;
+  breakdown.push(...sevParts);
+  score += severity;
+  if (severity > severityCap) {
+    add(severityCap - severity, "severity-cap", undefined, `severity capped at ${severityCap}${devOnly ? " (dev dependency)" : ""}`);
+  }
 
   // Dismissals and noise.
   if (LABEL_DISMISSED.test(labels)) {
-    score -= 25;
-    reasons.push("marked duplicate/invalid");
+    add(-25, "dismissed-label", "marked duplicate/invalid");
   } else if ((contributor && !consumer ? LABEL_NOISE_CONTRIBUTOR : LABEL_NOISE).test(labels)) {
-    score -= 15;
-    reasons.push("question/docs label");
+    add(-15, "noise-label", "question/docs label");
   }
   if (issue.isBot) {
-    score -= 25;
-    reasons.push("opened by a bot");
+    add(-25, "bot-author", "opened by a bot");
   }
   if (issue.body.trim().length < 30) {
-    score -= 5;
-    reasons.push("little detail");
+    add(-5, "little-detail", "little detail");
   }
 
   // Junk filter: low-effort titles are rarely a task anyone can act on.
   const title = issue.title.trim();
   if (title.length < 10 || !/\s/.test(title) || GENERIC_TITLE.test(title)) {
-    score -= 20;
-    reasons.push("vague title");
+    add(-20, "vague-title", "vague title");
   } else if (nonLatinShare(title) > 0.5) {
-    score -= 15;
-    reasons.push("non-English title");
+    add(-15, "non-english-title", "non-English title");
   }
 
   // Community attention.
   if (!devOnly) {
     if (issue.reactions >= 3) {
-      score += 5;
-      reasons.push(`${issue.reactions} reactions`);
+      add(5, "reactions", `${issue.reactions} reactions`);
     }
     // Many comments mean attention for a user, but a crowd for a contributor (someone is probably on it).
     if (issue.comments >= 5 && !contributor) {
-      score += 5;
-      reasons.push(`${issue.comments} comments`);
+      add(5, "comments", `${issue.comments} comments`);
     }
   }
 
   // Can I pick this up and fix it? (contributor view)
   if (contributor) {
     if (LABEL_EASY.test(labels)) {
-      score += 20;
-      reasons.push("good first issue");
+      add(20, "good-first-issue", "good first issue");
     } else if (LABEL_HELP.test(labels)) {
-      score += 15;
-      reasons.push("help wanted");
+      add(15, "help-wanted", "help wanted");
     }
 
     if (issue.assignees > 0) {
-      score -= 25;
-      reasons.push("already assigned");
+      add(-25, "assigned", "already assigned");
     } else {
-      score += 10;
-      reasons.push("unassigned");
+      add(10, "unassigned", "unassigned");
     }
 
     const ageH = (now - Date.parse(issue.createdAt)) / HOUR_MS;
     if (Number.isFinite(ageH) && ageH >= 0 && ageH <= 48) {
-      score += 10;
-      reasons.push(ageH < 1 ? "opened just now" : `opened ${Math.floor(ageH)}h ago`);
+      add(10, "fresh", ageH < 1 ? "opened just now" : `opened ${Math.floor(ageH)}h ago`);
     }
 
     // Work that is already taken is not something to pick up.
     if (LABEL_CLAIMED.test(labels)) {
-      score -= 20;
-      reasons.push("team already on it");
+      add(-20, "team-on-it", "team already on it");
     } else if (REPORTER_FIXING.test(issue.body) || REPORTER_WRITING.test(issue.body) || FIX_IN_PR.test(issue.body)) {
-      score -= 15;
-      reasons.push("a fix is already planned or open");
+      add(-15, "fix-planned", "a fix is already planned or open");
     }
 
     if (issue.comments >= 10) {
-      score -= 5;
-      reasons.push(`crowded (${issue.comments} comments)`);
+      add(-5, "crowded", `crowded (${issue.comments} comments)`);
     } else if (issue.comments <= 2 && issue.assignees === 0) {
-      score += 5;
-      reasons.push("few comments");
+      add(5, "few-comments", "few comments");
     }
 
     // Template headings alone ("### Steps to reproduce") must not count: require real text around them.
     const substance = issue.body.replace(/^#{1,6}.*$/gm, "").replace(/\s+/g, " ").trim();
     if (REPRO.test(issue.body) && substance.length >= 100) {
-      score += 5;
-      reasons.push("has reproduction details");
+      add(5, "repro", "has reproduction details");
     } else if (issue.body.trim().length >= 200) {
-      score += 3;
-      reasons.push("detailed description");
+      add(3, "detailed", "detailed description");
     }
   }
 
-  return { score: clamp(score), reasons };
+  const final = clamp(score);
+  if (final !== score) {
+    breakdown.push({ signal: "clamp", points: final - score, reason: "score limited to the range 0-100" });
+  }
+  return { score: final, reasons, breakdown };
+}
+
+/** The score and reasons only; used by the digest, the evaluation and ranking. */
+export function scoreIssue(issue: Issue, target: WatchTarget, opts: ScoreOptions = {}): Score {
+  const { score, reasons } = scoreIssueDetailed(issue, target, opts);
+  return { score, reasons };
 }
 
 export function rankIssues(
