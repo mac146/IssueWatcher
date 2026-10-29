@@ -1,0 +1,35 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.mac146/issuewatcher",
+  "description": "Ranks new GitHub issues for your AI assistant: what to pick up, what may break your projects.",
+  "repository": {
+    "url": "https://github.com/mac146/IssueWatcher",
+    "source": "github",
+    "subfolder": "mcp-server"
+  },
+  "version": "0.2.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "issuewatcher-mcp",
+      "version": "0.2.0",
+      "transport": { "type": "stdio" },
+      "environmentVariables": [
+        {
+          "name": "GITHUB_TOKEN",
+          "description": "A GitHub personal access token with read-only access. Create one at https://github.com/settings/personal-access-tokens/new",
+          "format": "string",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "SCORING_MODE",
+          "description": "contributor (issues you could pick up), consumer (issues that may break your projects) or both.",
+          "format": "string",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}

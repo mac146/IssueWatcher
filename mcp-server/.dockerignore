@@ -8,3 +8,6 @@ data
 *.md
 Dockerfile
 .dockerignore
+dist-mcp
+dist-mcpb
+eval

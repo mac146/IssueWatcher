@@ -1,0 +1,69 @@
+{
+  "manifest_version": "0.3",
+  "name": "issuewatcher",
+  "display_name": "IssueWatcher",
+  "version": "0.0.0",
+  "description": "Ranks new GitHub issues for you: what to pick up, and what may break your projects.",
+  "long_description": "IssueWatcher watches the repositories you starred and the open-source libraries your own projects depend on, and ranks their new issues with plain-language reasons. Ask 'What should I work on today?' for good first issues that are unassigned and fresh, or 'What broke in my dependencies this week?' for problems in libraries you use. Every score can be explained signal by signal. All tools are read-only: IssueWatcher never comments on, assigns or changes anything on GitHub. It runs on your computer and talks only to GitHub (and the npm and PyPI registries to find where your dependencies live).",
+  "author": {
+    "name": "Mayank Kumar Singh",
+    "url": "https://github.com/mac146"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mac146/IssueWatcher"
+  },
+  "homepage": "https://github.com/mac146/IssueWatcher",
+  "documentation": "https://github.com/mac146/IssueWatcher/blob/main/docs/MCP.md",
+  "support": "https://github.com/mac146/IssueWatcher/issues",
+  "license": "MIT",
+  "keywords": ["github", "issues", "open-source", "good-first-issue", "dependencies", "triage"],
+  "server": {
+    "type": "node",
+    "entry_point": "build/mcp/main.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/build/mcp/main.js"],
+      "env": {
+        "GITHUB_TOKEN": "${user_config.github_token}",
+        "SCORING_MODE": "${user_config.scoring_mode}"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "get_ranked_issues",
+      "description": "Ranks recently opened issues across your starred repos and your dependencies, with a score and reasons."
+    },
+    {
+      "name": "explain_issue",
+      "description": "Shows exactly why one issue scored as it did, signal by signal."
+    },
+    {
+      "name": "list_watched_repos",
+      "description": "Lists the repositories being watched and why: starred, or a dependency of one of your projects."
+    }
+  ],
+  "user_config": {
+    "github_token": {
+      "type": "string",
+      "title": "GitHub token",
+      "description": "A GitHub personal access token with read-only access. Create one at https://github.com/settings/personal-access-tokens/new. It is stored in your system keychain and only ever sent to GitHub.",
+      "required": true,
+      "sensitive": true
+    },
+    "scoring_mode": {
+      "type": "string",
+      "title": "What to look for",
+      "description": "contributor = issues you could pick up and fix. consumer = issues that may break your projects. both = a mix of the two.",
+      "default": "both",
+      "required": false
+    }
+  },
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "node": ">=20"
+    }
+  }
+}
