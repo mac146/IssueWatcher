@@ -58,11 +58,12 @@ function retryDelay(err: AxiosError, attempt: number): number | null {
 export class GitHubAPI implements IssueSource {
   private readonly client: AxiosInstance;
 
-  constructor(token: string, client?: AxiosInstance) {
+  /** `baseUrl` is only overridden in tests (a local stub) and for GitHub Enterprise. */
+  constructor(token: string, client?: AxiosInstance, baseUrl = "https://api.github.com") {
     this.client =
       client ??
       axios.create({
-        baseURL: "https://api.github.com",
+        baseURL: baseUrl,
         timeout: 20_000,
         headers: {
           Authorization: `Bearer ${token}`,
@@ -155,6 +156,42 @@ export class GitHubAPI implements IssueSource {
       .filter((i) => !i.pull_request)
       .slice(0, limit)
       .map((i) => toIssue(i, `${owner}/${repo}`));
+  }
+
+  /**
+   * Open issues created at or after `since`, newest first, at most `max`. Pull requests are
+   * excluded. Paging stops at the first page that reaches an older issue, so a quiet repo
+   * costs one request.
+   */
+  async getIssuesSince(owner: string, repo: string, since: Date, max: number): Promise<Issue[]> {
+    const sinceMs = since.getTime();
+    const perPage = Math.max(1, Math.min(PER_PAGE, max * 2));
+    const raw = await this.paginate<RawIssue>(
+      `/repos/${owner}/${repo}/issues`,
+      { state: "open", sort: "created", direction: "desc", per_page: perPage },
+      {
+        maxPages: 5,
+        stopAfter: (page) => page.some((i) => Date.parse(i.created_at ?? "") < sinceMs),
+      },
+    );
+    return raw
+      .filter((i) => !i.pull_request && Date.parse(i.created_at ?? "") >= sinceMs)
+      .slice(0, max)
+      .map((i) => toIssue(i, `${owner}/${repo}`));
+  }
+
+  /** Remaining API calls and when the window resets; used by the setup check. */
+  async getRateLimit(): Promise<{ limit: number; remaining: number; resetAt: Date }> {
+    const res = await this.get<{ resources?: { core?: { limit: number; remaining: number; reset: number } } }>("/rate_limit");
+    const core = res.data.resources?.core;
+    if (!core) throw new Error("Unexpected rate limit response");
+    return { limit: core.limit, remaining: core.remaining, resetAt: new Date(core.reset * 1000) };
+  }
+
+  /** The authenticated user's login, used by the setup check to confirm the token works. */
+  async getLogin(): Promise<string> {
+    const res = await this.get<{ login?: string }>("/user");
+    return res.data.login ?? "unknown";
   }
 
   /** One issue by number, or null if it no longer exists or is a pull request. */

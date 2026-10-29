@@ -1,8 +1,19 @@
 type Level = "info" | "warn" | "error";
 
+let allToStderr = false;
+
+/**
+ * Sends every log line to stderr. An MCP server that speaks over stdio must keep
+ * stdout for protocol messages only: a single stray log line there corrupts the
+ * stream and the client disconnects.
+ */
+export function logToStderr(): void {
+  allToStderr = true;
+}
+
 function log(level: Level, msg: string, meta?: unknown): void {
   const line = `${new Date().toISOString()} ${level.toUpperCase()} ${msg}`;
-  const sink = level === "info" ? console.log : console[level];
+  const sink = allToStderr ? console.error : level === "info" ? console.log : console[level];
   if (meta === undefined) sink(line);
   else sink(line, meta instanceof Error ? meta.stack ?? meta.message : meta);
 }

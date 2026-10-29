@@ -24,12 +24,16 @@ export function githubRepoFromUrl(url: string | undefined | null): string | null
 type NpmLatest = { repository?: string | { url?: string } };
 type PypiInfo = { info?: { project_urls?: Record<string, string> | null; home_page?: string | null } };
 
+export type RegistryUrls = { npm: string; pypi: string };
+
 export class HttpRegistry implements Registry {
   constructor(
     private readonly client: AxiosInstance = axios.create({
       timeout: 15_000,
       headers: { "User-Agent": "IssueWatcher" },
     }),
+    /** Overridden in tests (a local stub) and for registry mirrors. */
+    private readonly urls: RegistryUrls = { npm: "https://registry.npmjs.org", pypi: "https://pypi.org" },
   ) {}
 
   async resolve(ecosystem: DependencyUse["ecosystem"], pkg: string): Promise<string | null> {
@@ -44,14 +48,14 @@ export class HttpRegistry implements Registry {
 
   private async npm(pkg: string): Promise<string | null> {
     const res = await this.client.get<NpmLatest>(
-      `https://registry.npmjs.org/${pkg.replace("/", "%2F")}/latest`,
+      `${this.urls.npm}/${pkg.replace("/", "%2F")}/latest`,
     );
     const repo = res.data.repository;
     return githubRepoFromUrl(typeof repo === "string" ? repo : repo?.url);
   }
 
   private async pypi(pkg: string): Promise<string | null> {
-    const res = await this.client.get<PypiInfo>(`https://pypi.org/pypi/${pkg}/json`);
+    const res = await this.client.get<PypiInfo>(`${this.urls.pypi}/pypi/${pkg}/json`);
     const urls = res.data.info?.project_urls ?? {};
     const preferred = ["Source", "Source Code", "Repository", "Code", "Homepage", "GitHub"];
     const candidates = [

@@ -1,7 +1,7 @@
 import path from "node:path";
 import type { Config } from "./config.js";
 import { CachedDiscovery, discoverDependencies, type DependencyMap } from "./deps/discovery.js";
-import { HttpRegistry } from "./deps/registry.js";
+import { HttpRegistry, type Registry } from "./deps/registry.js";
 import type { GitHubAPI } from "./github/api.js";
 import type { Repo, WatchTarget } from "./poller/types.js";
 
@@ -32,11 +32,17 @@ export function buildTargets(starred: Repo[], dependencies: DependencyMap): Watc
 const DEPENDENCY_TTL_MS = 24 * 3_600_000;
 
 /** Everything to poll: starred repos plus the source repos of the user's dependencies. */
-export function createTargetProvider(config: Config, github: GitHubAPI): () => Promise<WatchTarget[]> {
+export type TargetSettings = Pick<Config, "dependencyScan" | "dependencyRepos" | "maxDependencyRepos" | "maxDependencies" | "stateFile">;
+
+export function createTargetProvider(
+  config: TargetSettings,
+  github: Pick<GitHubAPI, "getStarredRepos" | "listOwnRepos" | "getFile">,
+  registry: Registry = new HttpRegistry(),
+): () => Promise<WatchTarget[]> {
   const discovery = config.dependencyScan
     ? new CachedDiscovery(
         () =>
-          discoverDependencies(github, new HttpRegistry(), {
+          discoverDependencies(github, registry, {
             repos: config.dependencyRepos,
             maxRepos: config.maxDependencyRepos,
             maxDependencies: config.maxDependencies,
