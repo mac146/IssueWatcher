@@ -34,7 +34,20 @@ Status values: **Accepted**, **Superseded by D-xxx**, **Proposed** (needs the ow
 | D-026 | Blind labelling evaluation for the ranking | Accepted (re-scoring by D-027) |
 | D-027 | Scoring fixes from reading a real digest; eval re-scores | Accepted |
 | D-028 | Second round of scoring fixes; mode-aware summary threshold | Accepted |
-| D-020 | Scoring modes: consumer, contributor, both | Accepted (weights unvalidated) |
+| D-029 | Build an MCP server before an agent | Accepted |
+| D-030 | Architecture: shared core, stateless pull tools, second entry point | Accepted |
+| D-031 | MCP SDK v2 behind a client-compatibility spike (v1 fallback) | Accepted (spike passed) |
+| D-032 | Tool surface: four task-shaped, read-only tools | Accepted |
+| D-033 | Security posture against indirect prompt injection | Accepted |
+| D-034 | Transport and auth: stdio with the user's own token first | Accepted |
+| D-035 | Distribution and install experience | Accepted |
+| D-036 | Launch plan, success metrics and kill criteria | Accepted |
+| D-037 | The published package is generated from the server's import closure | Accepted |
+| D-038 | stdio hygiene and failure behaviour of the MCP server | Accepted |
+| D-039 | Radar mechanics, measured behaviour and one bug found | Accepted |
+| D-040 | Test strategy and verification status of the MCP server | Accepted |
+| D-041 | Severity words inside file paths are ignored | Accepted |
+| D-042 | Warm-up, shared loads and window-reuse cache (found by running it for real) | Accepted |
 
 ---
 
@@ -291,3 +304,171 @@ All signals use fields already returned by the issues endpoint (labels, assignee
 **Effect on the real issues:** TypeScript#64895 33 to 48 (no longer wrongly penalised); composio#5032 60 to 45; DefinitelyTyped#75803 46 to 13; the controls (composio#5022 at 70, pymupdf#5200 at 65) did not move.
 
 **Limits.** The DefinitelyTyped rule is specific to that one repository. Phrase lists will keep missing wording (see the "small PR" miss), so they need the labelled evaluation to be tuned systematically rather than one digest at a time.
+
+## D-029: Build an MCP server before an agent
+**Context.** The X launch got almost no traction. Likely causes, in order of confidence: (1) no existing audience, so any post starts from zero; (2) high adoption friction: fork the repo, create a personal access token, add four secrets, set up SMTP, wait for a 3-hour schedule; (3) the problem-solution fit was never validated with real users (Phase 0 was skipped); (4) there was no 30-second demo. An MCP server fixes (2) and part of (4) and opens discovery channels, but it does not fix (1) or (3) on its own, so it is a bet, not a cure.
+
+**Research (primary sources read on 2026-10-29).** The official GitHub MCP server (github/github-mcp-server) has issue, notification and stargazer toolsets but no scoring or prioritisation, and it does not analyse the user's package dependencies; `list_issues` and `search_issues` only sort. The gap between "list issues" and "which issues matter to me, and why" is exactly what this project does, so an IssueWatcher server complements the GitHub server instead of competing with it. Tool support is near-universal across clients (Claude Desktop and Code, Cursor, VS Code, Windsurf and others per secondary sources); resources, prompts and sampling are uneven, so tools are the safe surface.
+
+**Decision.** Ship an MCP server that exposes the existing ranking to AI assistants. Do not build an agent now.
+
+**Why not an agent.** The pipeline needs no model decisions today; an agent adds per-run cost, latency and failure modes to something that works as plain code, and it needs a use case people want (for example "pick an issue and draft a fix plan") that nobody has asked for yet. The user's own assistant can already act as the agent: it calls our tools, reasons over the results, and pays for its own tokens.
+
+**Alternatives considered.** A hosted web app (cost, accounts, privacy burden); more delivery channels such as Slack or Discord (more of the same push model that did not get traction); an agent (above).
+
+**Trade-offs.** MCP directories are crowded (secondary sources quote 17,000 to 50,000 servers, numbers disagree), so listing is table stakes, not growth. The audience (people who use an MCP-capable assistant and care about open-source issues) is narrower than "developers".
+
+**Revisit when** four weeks after launch the success criteria in D-036 are not met, or users ask for "do something about this issue" rather than "tell me which issue".
+
+## D-030: Architecture: shared core, stateless pull tools, second entry point
+**Decision.** Keep one repository and one codebase. Extract a `radar` function (inputs: mode, time window, limit, repo filters; output: ranked issues with a per-signal score breakdown) out of the current digest flow. The digest app and the MCP server both call it. The MCP server has its own entry point and its own bin (`issuewatcher-mcp`); the digest CLI, Docker image and Actions workflow stay as they are.
+
+**Why pull instead of the digest's "new since last run".** An assistant asks "what is new in the last 3 days?", not "what changed since my last poll", and the 2026-07-28 spec removes protocol-level sessions, so a server that depends on a per-connection high-water mark would fit badly. Tools take a time window, store no per-user state, and are safe to call repeatedly.
+
+**Performance.** The digest polls 50 repos one after another (about 30 seconds), which is too slow for an interactive tool. The radar fetches repos with bounded concurrency (about 8), caches results briefly (about 10 minutes, in memory and on disk, keyed by repo and window), and enforces a time budget (about 20 seconds); if the budget runs out it returns what it has with `partial: true` and says which repos were skipped. GitHub's authenticated limit (5,000 requests/hour) is ample for one request per repo per call.
+
+**Scoring change needed.** `scoreIssue` returns reason strings only. It must also return a structured breakdown (signal, points, reason) so `explain_issue` can show exactly where a score came from. This is additive, and the existing tests and digest keep working.
+
+**Packaging.** Publish the unscoped npm package `issuewatcher-mcp` (checked: the name is free) so the install line is `npx -y issuewatcher-mcp`. Splitting into a monorepo of packages is deferred until a second consumer exists.
+
+## D-031: MCP SDK v2 behind a client-compatibility spike (v1 fallback)
+**Facts (verified).** The current spec revision is 2026-07-28. It makes the protocol stateless: no `initialize` handshake, no `Mcp-Session-Id`, every request carries its version and capabilities, servers must implement `server/discover`, tasks became an extension, and Roots, Sampling and Logging are deprecated. The TypeScript SDK v2 (`@modelcontextprotocol/server` 2.4.0, updated 2026-10-23, Node 20 or newer, zod 4) implements it; the v1 package `@modelcontextprotocol/sdk` (1.32.2) is still maintained and is promised bug and security fixes for at least six months after the v2 release on 2026-07-27. MCP Inspector is at 2.13.0.
+
+**Decision.** Target v2, but do not commit until a half-day spike proves it works. The spike builds a trivial one-tool stdio server on v2 and connects it from MCP Inspector and from the real clients (Claude Code, Claude Desktop, Cursor, VS Code). If any major client cannot connect, build on v1 and migrate later; the tool layer is written to be SDK-agnostic so the switch is cheap.
+
+**Why gate it.** The unknown that can sink the launch is not our code but whether the clients users already have speak the new protocol. A server that works in the Inspector and fails in Claude Desktop is worse than no server. Not verified: which client versions support 2026-07-28, and whether a v2 server negotiates down for clients on older revisions.
+
+**Also not verified:** the exact v2 API for tool annotations and Streamable HTTP (the docs pages were not readable in research); this is checked against the installed package types during the spike.
+
+## D-032: Tool surface: four task-shaped, read-only tools
+**Principle.** Few tools, named for what the user wants to do, not mirrors of API endpoints (the consistent advice in MCP design guides: a model picks poorly from long lists and does not know call sequences). All tools are read-only and carry `readOnlyHint: true`, `idempotentHint: true` and `openWorldHint: true` (they reach GitHub). Results are deterministically ordered, with structured output plus a short text rendering, and every list has a limit (default 10, maximum 25).
+
+1. `get_ranked_issues`: new issues ranked for the user. Inputs: `mode` (`contributor`, `consumer`, `both`), `since` (for example `24h`, `3d`, `7d`), `limit`, `min_score`, optional `repos` filter, `source` (`starred`, `dependencies`, `both`). Output per issue: repo, number, title, url, score, reasons, labels, age, why-watched (starred or which dependency and range).
+2. `explain_issue`: the per-signal score breakdown for one issue, and optionally a short excerpt (opt-in, see D-033).
+3. `list_watched_repos`: which repos are watched and why (starred, or which of your projects depends on which package).
+4. `find_issues_for_skill` is deliberately **not** included; skill matching is a separate, unvalidated idea.
+
+One MCP **prompt**, "issue radar for today", is added as a convenience for clients that support prompts; nothing depends on it.
+
+**Not exposed in v1:** any write tool (comment, assign, close), email sending, and state changes such as ignore lists. Writes would break the read-only security story in D-033 and are not what users asked for.
+
+**Why `since` and not "new since last call".** See D-030.
+
+## D-033: Security posture against indirect prompt injection
+**Threat (documented).** Invariant Labs showed in 2025 a "toxic agent flow" against the GitHub MCP server: an attacker files a malicious issue in a public repo; when the owner asks their agent to review issues, the issue text steers the agent into using its other tools (reading private repos, opening pull requests) and leaking data. The tools were not compromised; trusted tools plus untrusted content were the problem. Our server returns issue text from arbitrary public repos to a model that often has other, more powerful tools, so we are in the same exposure class.
+
+**Decisions.**
+- **Default responses carry no issue bodies.** Titles, labels, scores and reasons only; this also keeps responses small. Titles are attacker-controlled too, so they are length-capped and stripped of control characters and markdown link syntax.
+- **Excerpts are opt-in** (`include_excerpt` on `explain_issue`), length-capped, and returned inside a field named `untrusted_excerpt` with an explicit marker, never merged into the instructions or reasons.
+- The server's `instructions` string tells the model that issue text is third-party data to be reported, never obeyed.
+- **Read-only tools only**, so this server cannot be the part that performs the harmful action.
+- **Token handling:** the user's GitHub token is read from the environment, never logged and never returned in any tool output or error message. Documentation recommends a fine-grained, read-only token.
+- **README warning** for users who also run write-capable GitHub MCP tools: use a separate token without private-repo access for the assistant session, or require confirmation on write tools.
+- Adversarial tests: issue titles and excerpts containing instructions, markdown links, very long text and control characters must come out inert, capped and labelled.
+
+**Limits.** None of this makes injection impossible; the model still reads the titles. It reduces the surface, keeps this server from being the weak link, and is honest about the residual risk.
+
+## D-034: Transport and auth: stdio with the user's own token first
+**Decision.** Version 1 supports stdio only. The user supplies their own GitHub token through an environment variable; the server never sees a password and stores nothing remotely. Remote Streamable HTTP with OAuth is deferred.
+
+**Why.** Stdio covers Claude Desktop, Claude Code, Cursor, VS Code, Windsurf and similar local clients, which is the target audience. A hosted remote server would require running infrastructure, a GitHub OAuth app, token storage and a privacy policy, and it would make this project the custodian of users' GitHub tokens. The benefit (reaching claude.ai web and ChatGPT-style remote-only clients, per secondary sources) is real but is not worth that cost before anyone uses the local version. The code is transport-independent, so adding HTTP later is a small change; the stateless protocol makes a later remote deployment simple.
+
+**Token guidance.** Stars and public issues need no special scope; reading manifests of private repos (dependency discovery) needs read access to their contents. Without a token the tools return a clear setup message instead of failing; unauthenticated GitHub limits (60 requests/hour) are too low to be useful.
+
+## D-035: Distribution and install experience
+**Goal.** From "interesting" to "working in my assistant" in under two minutes, with no config-file editing for the common case.
+
+| Client | Install path | Notes |
+|---|---|---|
+| Claude Desktop | One-click `.mcpb` bundle (built with `@anthropic-ai/mcpb` 2.1.2) | The bundle declares the token as a sensitive `user_config` field, stored in the OS keychain; the best experience for non-technical users. Directory listing is a separate, reviewed step. |
+| Claude Code | `claude mcp add issuewatcher --env GITHUB_TOKEN=... -- npx -y issuewatcher-mcp` | From product knowledge; verify the exact flags before publishing the README. |
+| Cursor, VS Code | Install deeplinks plus a copy-paste JSON snippet | One forum report says Cursor deeplinks broke in a recent version, so the JSON snippet is always shown too. |
+| Any other client | Generic JSON config using `npx -y issuewatcher-mcp` | |
+
+**Listings.** Publish to npm first, then the official MCP Registry (preview; `mcp-publisher`, name `io.github.mac146/issuewatcher`, `mcpName` in package.json must match `server.json`, description at most 100 characters, GitHub login or GitHub Actions OIDC for namespace ownership; not done by pull request), then Glama, PulseMCP, mcp.so and the awesome-mcp-servers list. Smithery is optional because it is a hosting platform first. These are discovery aids, not a growth plan (see D-029 and D-036).
+
+**Required assets:** a 30 to 45 second screen recording at the top of the README, a 512 by 512 icon, a privacy statement ("runs locally; your token goes only to GitHub; no telemetry"), and an example-prompts section.
+
+**Not verified:** current Claude Connectors Directory submission requirements (secondary sources only; remote servers are the recommended path), and the ChatGPT MCP availability (sources conflict).
+
+## D-036: Launch plan, success metrics and kill criteria
+**Principles.** Fix the product before the post; show the result, not the architecture; be honest about what is unvalidated; ask for feedback, not stars.
+
+**Sequence.**
+1. **Week 0 (before building much):** label the 100-issue sample (about 30 minutes) and run `npm run eval:report`. This produces the one sentence that can carry the launch ("the top 10 were X% useful vs Y% for newest-first"). If the ranking does not beat newest-first, fix it before shipping a server that exposes it.
+2. **Week 1:** the compatibility spike (D-031), the radar refactor (D-030), the four tools (D-032) and the security tests (D-033).
+3. **Week 2:** packaging (npm, mcpb, registry, install snippets), demo recording, README.
+4. **Week 3:** soft launch to the communities where the target user already is: assistant-specific communities (Claude, Cursor), open-source and contributor communities, and the existing Reddit posts. One post per community, spaced out, with the demo first. A technical write-up ("an MCP server on the stateless 2026-07-28 spec: lessons") is the secondary asset and the one that can travel to Hacker News once there are real numbers.
+5. **Week 4:** read the feedback, fix what people hit, decide.
+
+**Success (4 weeks after launch).** At least 25 installs (npm downloads of `issuewatcher-mcp` excluding bots are a rough proxy), at least 5 people who used it on more than one day and can say what they used it for, at least 10 substantive pieces of feedback, and no unfixed install failure on a major client.
+
+**Kill or pivot.** If after four weeks fewer than about 10 installs and no repeat users, stop adding features to the MCP surface. The likely reasons would then be audience or problem fit, not engineering, and the next step is user conversations, not code. Telemetry stays off by default (trust); signals are npm downloads, GitHub stars and issues, registry views and direct feedback.
+
+**Honest expectation.** MCP gives a better product shape and discovery channels. It does not create an audience. Expect a slow start and judge it by repeat use, not first-day spikes.
+
+## D-031 addendum: spike result (2026-10-29)
+**Passed.** A one-tool stdio server on `@modelcontextprotocol/server` 2.4.0 (spec 2026-07-28) was connected from: the new v2 client; the old v1 client (`@modelcontextprotocol/sdk` 1.32.2, which still sends `initialize`); the official Inspector CLI (npx resolved version 1.0.3, a v1-era build); and **Claude Code 2.1.170**, a real product, which called the tool and returned the right values. The v2 server negotiates down for older-protocol clients, which was the main unknown. Annotations (`readOnlyHint` and the rest) and `structuredContent` with an output schema round-tripped intact.
+
+**Decision confirmed:** build on v2. The tool layer stays SDK-agnostic anyway, so a fallback to v1 would be a small change.
+
+**Not tested** (needs a person at a desktop): Claude Desktop, Cursor and VS Code as GUI apps. Their MCP stacks are the same protocol, but this is unproven until someone installs it; the Windsurf/Zed-style apps are likewise untested.
+
+## D-032 correction and final tool surface
+D-032 was titled "four task-shaped tools" but listed three tools plus one explicitly excluded idea. The correct and built surface is **three read-only tools** (`get_ranked_issues`, `explain_issue`, `list_watched_repos`) **plus one prompt** (`issue_radar`). Details settled during the build: tool inputs use zod schemas whose error messages tell the model how to correct itself (for example a bad time window says "Use a number plus h or d, for example 24h, 3d or 7d", found because the first version returned "Too big: expected string to have <=8 characters"); every tool declares an output schema, and results carry both structured data and a plain-text rendering for clients that read only text; URLs are rebuilt from repo and number and never copied from API data.
+
+## D-037: The published package is generated from the server's import closure
+**Context.** The repository holds two products: the email digest (nodemailer, Redis, Gemini, dotenv) and the MCP server. Publishing the repo's `package.json` would make `npx issuewatcher-mcp` install the digest's libraries too: slower first run (it is the first thing a new user waits for) and a larger supply-chain surface.
+
+**Decision.** `scripts/stage-mcp.ts` starts at `build/mcp/main.js`, follows every relative import, collects the third-party packages those files import, and writes a package containing only those files and only those dependencies (3: `@modelcontextprotocol/server`, `axios`, `zod`). It fails if the server imports something that is not a declared dependency. It rewrites the README's relative links to absolute GitHub URLs (npm shows the README away from the repo), sets `mcpName`, and the same staged package feeds the npm tarball, the Docker `mcp` image and the Claude Desktop bundle.
+
+**Measured.** 22 files, 30 KB tarball, 18 s to install into an empty folder (20 MB of node_modules, 0 known vulnerabilities); the `.mcpb` is 3 MB; the MCP image is built from the same stage.
+
+**Guard.** A test stages the package and asserts the dependency list is exactly those three and that no digest, mail, cache or test code is included, so a stray import cannot silently bloat the release. Alternatives considered: a monorepo with two packages (cleaner, but more tooling for one consumer; deferred per D-030) and marking the digest's libraries optional (still downloaded).
+
+## D-038: stdio hygiene and failure behaviour of the MCP server
+- **stdout is sacred.** Over stdio, stdout carries only protocol messages; one stray log line corrupts the stream and the client just reports "server disconnected". The server routes every log to stderr (`logToStderr`), redirects `console.log` defensively, and a test spawns the real process and checks that every stdout line is JSON-RPC.
+- **Missing or bad configuration never crashes the server.** With no token the server still starts and every tool returns an actionable message (where to create a token, how to set it, how to run `--check`); an invalid setting falls back to its default and is reported; GitHub failures are mapped to fixed, safe messages (401, 403, rate limit, 404, network) that never include the raw error text, which can contain URLs and headers. Tests inject errors containing a fake token and assert it never appears in any output.
+- **`--check`** is a plain-words self-test (token present, token works and as whom, API budget left, how many repos are watched and why, dependency scan result) with a non-zero exit code on failure. It exists because the most common failure is a first-time user who sees an empty AI app and cannot tell why.
+- **Shutdown:** closing stdin is how a stdio client stops a server, so it exits; SIGINT and SIGTERM also exit cleanly.
+
+## D-039: Radar mechanics, measured behaviour and one bug found
+**Mechanics.** The radar scans watched repos with bounded concurrency (8), keeps results in memory for 10 minutes keyed by repo and the window start rounded to the hour, and has a 20-second budget after which it answers with what it has, marked `partial`, and says how many repos it did not reach; a rate limit stops the scan the same way; one failing repo is skipped with a safe reason and never fails the call; a rejected token aborts with an actionable error. Ordering is deterministic (score, then newer issue number, then repo) so results are reproducible and tool output is cache-friendly. Dependency discovery is cached on disk for 24 hours.
+
+**Measured on a real account (51 watched repos: 16 starred, 35 from dependencies):** setup check 8.7 s cold, 2.0 s with the dependency cache; first `get_ranked_issues` 9.7 s; the same question again 0.0 s; `explain_issue` 0.5 s; the same flow inside the Docker image gave the same results.
+
+**Bug found by testing.** The first version called `unref()` on the budget timer. When every pending request hung, nothing else kept the process alive, so Node concluded there was nothing left to do and exited instead of answering. The test for the budget caught it; the timer is no longer unref'd (it is always cleared in `finally`).
+
+**Found by reading real output.** A dead-link issue in `security/sca/README.md` ranked 70 because the folder name "security" counted as a severity word: see D-041.
+
+## D-040: Test strategy and verification status of the MCP server
+**Layers (210 tests in total; 207 run by default, 3 need a Docker image and are skipped unless one is named).**
+1. Unit tests: sanitiser (hidden characters, link targets, markup, length, surrogate-safe truncation), parameter schemas, settings, TTL cache.
+2. Radar tests against a fake GitHub: ranking, filters, caching and expiry, concurrency bound, time budget with hanging requests, failure isolation, rate limit, auth failure, ignore rules, deterministic order, the explain breakdown, and a property test that the score breakdown sums exactly to the score across 1,000+ generated combinations of mode, labels, titles, assignees, comments and targets.
+3. In-process protocol tests with the real server and the real v2 client over an in-memory transport: tool list and annotations, schemas, validation errors, prompts, missing token, hostile text in every field, error leakage.
+4. End-to-end over real stdio: the compiled server is spawned and driven by the v2 client, by the old v1 client, and by a raw JSON-RPC client that checks stdout cleanliness; a local stub stands in for GitHub, npm and PyPI.
+5. Packaging: the staged package contents and dependencies, the Claude Desktop manifest (validated by the official validator) against the real tool list, `server.json` (validated against the official registry schema, with a negative control proving the validator can fail), a tarball install into an empty folder, an unpacked `.mcpb` run with the manifest's own launch command, and the Docker image over `docker run -i` (non-root user, `--check`, no-token behaviour).
+6. Real world: the compiled server and the Docker image against live GitHub with a real token; **Claude Code 2.1.170 (a real client) driving the actual server against the real account** (it returned the same top three issues and scores as direct calls); and a measured cold-start and cache behaviour on that account (D-042).
+7. Refactor safety: the scorer was rewritten to record a per-signal breakdown; it was compared against the previous version on 100 real issues in all three modes (300 comparisons): zero differences in score or reasons.
+
+**Verified live:** everything above. **Not verified, needs a person or an account:** Claude Desktop, Cursor and VS Code as GUI clients; `npm publish`; the registry publish; the Release workflow's new jobs and the new CI jobs (they pass `actionlint` and their commands were run by hand, but they have not run on GitHub); directory submissions; macOS and Linux (development and tests ran on Windows 11 plus Linux containers).
+
+## D-041: Severity words inside file paths are ignored
+**Context.** Reading the first real MCP output, an issue titled "Dead link to Sustainable Use License in security/sca/README.md" scored 70, because "security" in the path counted as a severity word in the title. A folder name says where, not how bad.
+
+**Decision.** Before matching severity words in a title, tokens containing a slash or backslash are removed. "Crash in src/main.ts on startup" still counts (the word is outside the path); "Dead link in security/sca/README.md" does not. Tested for forward and back slashes and for the unaffected cases. This changes the digest too, since both use the same scorer.
+
+## D-042: Warm-up, shared loads and a window-reuse cache (found by running it for real)
+**What the real runs showed.** With a real account (51 watched repos) the first question took 9.7 s, then 22.8 s on the same machine a few minutes later, and 52 s then 10.7 s inside Docker. The network to GitHub and to the package registries varies by a factor of five, so a cold first call anywhere from 10 s to 50 s is normal, which is long enough for some AI apps to give up on a tool call (30 to 60 s is common). The unit tests could not show this: their fake network answers instantly.
+
+**Changes.**
+1. **Background warm-up.** When the server starts it immediately loads the repo list and the default (3-day) window of issues, without waiting for a question (`ISSUEWATCHER_PREFETCH=false` turns it off). An app starts its servers when it opens, and a person takes seconds to type, so the first question usually finds everything ready.
+2. **Shared loads.** If a warm-up and a question, or two questions, ask for the same thing at the same moment, they share one request instead of repeating it.
+3. **One budget for the whole call.** The 20-second limit now covers loading the repo list too. On a very slow first run the answer is an honest "still loading, ask again in a few seconds" (`partial: true` plus a `notice` the assistant can relay) while the load continues in the background and is reused by the next question. Partial results from a scan that runs out of time or hits GitHub's rate limit carry a notice as well.
+4. **A cache that reuses windows.** The first version cached per repo and exact window start, so the warm-up's 3-day window did not help a question about 2 days; this was found by the second real Docker run (8.6 s after a 25 s pause). The cache is now per repo and remembers how far back the fetch reached; every fetch reaches back at least 72 h (a single request either way), and any question about an equal or shorter window is answered by filtering what is already loaded. The result is identical to a fresh fetch: GitHub returns the newest issues first, so the newest N within a later start date are a subset of the newest N within an earlier one.
+
+**Measured on the real account.** First question asked immediately after start, everything cold: 11.8 s. Asked 25 s after start, as a person would: **0.0 s**, on the host and inside the Docker image, including for a different time window than the one that was prefetched.
+
+**Why this matters beyond speed.** An answer that takes 50 s is, for most users, the same as a server that does not work, and a user decides in their first attempt. It is the kind of defect that only appears with real latency, which is why D-040 requires a real-account run before every release.
+
+**Costs and limits.** Each app launch spends about one GitHub request per watched repo (about 50 of the 5,000 per hour) even if the user never asks; it can be turned off. Only the 20 newest issues per repo are considered in a window, so in a very busy repo older issues inside the window may not appear; the answer does not yet say when a repo hit that cap.

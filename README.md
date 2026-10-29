@@ -4,6 +4,17 @@
 
 Watches the GitHub repositories you have starred, detects newly opened issues, and emails you a digest with an AI-generated summary and a suggested fix for each one.
 
+## Use it from your AI assistant (MCP)
+Ask Claude, Cursor or VS Code **"What should I work on today?"** and get the new GitHub issues worth your time, ranked, with the reason for each. It works through [MCP](https://modelcontextprotocol.io), is read-only, and needs only a GitHub token (no AI key).
+
+```bash
+claude mcp add issuewatcher -e GITHUB_TOKEN=github_pat_xxxxxxxx -- npx -y issuewatcher-mcp
+```
+
+Claude Desktop has a one-click bundle. Full guide, token walkthrough, other apps and troubleshooting: **[docs/MCP.md](docs/MCP.md)**. Test your setup any time with `npx -y issuewatcher-mcp --check`.
+
+The rest of this page describes the other way to use the project: a scheduled **email digest**.
+
 ## What makes it different
 Besides your starred repos, IssueWatcher reads the `package.json` and `requirements.txt` of your own repos and also watches the libraries you depend on. New issues are scored 0-100 (is it a library you use? does it mention your version? does it sound severe?). Only the top ones get an AI summary and a "why you are seeing this" line; the rest are listed compactly.
 
@@ -152,6 +163,8 @@ Run in `mcp-server/`:
 The process handles SIGINT/SIGTERM by finishing the current cycle and exiting. Keep `STATE_FILE` on persistent storage if you run it in a container.
 
 ## Project docs
+- [docs/MCP.md](docs/MCP.md): the MCP server (setup for every client)
+- [docs/PUBLISHING.md](docs/PUBLISHING.md) and [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md): releasing and recording a demo
 - [DECISIONS.md](DECISIONS.md): design decisions and their rationale
 - [CONTRIBUTING.md](CONTRIBUTING.md): development workflow
 
