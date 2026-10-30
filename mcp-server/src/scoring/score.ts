@@ -57,13 +57,30 @@ function nonLatinShare(text: string): number {
 const LABEL_DISMISSED = /(duplicate|invalid|wontfix|won't fix|not a bug)/i;
 const VERSION_IN_TEXT = /\bv?(\d+)\.(\d+)\.(\d+)\b|\bv(\d+)\.(\d+)\b/g;
 
+const WORKING_VERSION = /(worked|works|working|fine|as it did|did|passes|passed)\s+(in|on|with|until|before)\s+(version\s+)?$|(before|previously|prior to|until|downgrad\w*\s+to|rolled? back to|older than|earlier than)\s+(version\s+)?$/i;
+
 const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
 
 /** Versions mentioned in free text, as {major, minor}. */
 function mentionedVersions(text: string): Array<{ major: number; minor: number }> {
   const out: Array<{ major: number; minor: number }> = [];
   for (const m of text.matchAll(VERSION_IN_TEXT)) {
+    // "worked in 0.3.31" names the version that is fine, not the one that is broken.
+    const before = text.slice(Math.max(0, (m.index ?? 0) - 40), m.index ?? 0);
+    if (WORKING_VERSION.test(before)) continue;
     out.push({ major: Number(m[1] ?? m[4]), minor: Number(m[2] ?? m[5]) });
+  }
+  return out;
+}
+
+/** Words that may come right before a version without it belonging to some other product. */
+const VERSION_LEAD = new Set("in on since from after with to at for and the version v".split(" "));
+
+/** Majors a title names ("1.x", "v2", "2.3.1"). "TS 7.0" or "Node 22.x" name another product and are skipped. */
+function titleMajors(title: string): number[] {
+  const out: number[] = [];
+  for (const m of title.matchAll(/(^|[^\w.])(?:([a-z][\w-]*)\s+)?v?(\d+)\.(?:x|\d+)/gi)) {
+    if (!m[2] || VERSION_LEAD.has(m[2].toLowerCase())) out.push(Number(m[3]));
   }
   return out;
 }
@@ -142,7 +159,17 @@ export function scoreIssueDetailed(issue: Issue, target: WatchTarget, opts: Scor
   // Does the report concern a version the user runs?
   const text = `${issue.title}\n${issue.body.slice(0, 4000)}`;
   const versions = mentionedVersions(text);
-  if (consumer && versions.length) {
+  // A title about a newer major than you run (a "1.x regression", you use ^0.3) is probably not about
+  // you. Older versions in its body are then comparisons ("worked in 0.3.31"), not matches.
+  const titleVersions = titleMajors(issue.title);
+  const mineMajors = deps.map((d) => minVersion(d.range)).filter((v): v is NonNullable<typeof v> => v !== null);
+  const newerMajor =
+    consumer &&
+    !runtime?.range.includes("*") &&
+    titleVersions.length > 0 &&
+    mineMajors.length > 0 &&
+    titleVersions.every((m) => mineMajors.every((v) => m > v.major));
+  if (consumer && versions.length && !newerMajor) {
     let best: { points: number; reason: string } | null = null;
     for (const dep of deps) {
       const mine = minVersion(dep.range);
@@ -166,6 +193,9 @@ export function scoreIssueDetailed(issue: Issue, target: WatchTarget, opts: Scor
     if (best) {
       add(best.points, "version-match", best.reason);
     }
+  }
+  if (newerMajor) {
+    add(-15, "newer-major", `title is about v${titleVersions[0]}, you use ${deps[0]!.range}`);
   }
 
   // Severity signals. Each is recorded individually; the total is capped afterwards.

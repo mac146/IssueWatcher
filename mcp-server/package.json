@@ -1,6 +1,6 @@
 {
   "name": "issue-watcher",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Emails AI summaries of new issues in your starred GitHub repositories",
   "main": "build/index.js",
   "engines": {

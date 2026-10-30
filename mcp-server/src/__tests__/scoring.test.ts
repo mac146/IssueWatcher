@@ -86,10 +86,11 @@ test("a major-only version match is weak, and meaningless for 0.x packages", () 
   const major = scoreIssue(issue("a/b", 1, { title: "bug in 1.9.0" }), depTarget(dep("^1.6.0")));
   const exact = scoreIssue(issue("a/b", 1, { title: "bug in 1.6.2" }), depTarget(dep("^1.6.0")));
   const none = scoreIssue(issue("a/b", 1, { title: "bug in 2.0.0" }), depTarget(dep("^1.6.0")));
-  assert.ok(exact.score - major.score >= 15 && major.score - none.score <= 5);
+  // "none" names a newer major, which is also scored down (15) on top of the missing +5.
+  assert.ok(exact.score - major.score >= 15 && major.score - none.score === 5 + 15);
 
   const zeroMinorMiss = scoreIssue(issue("a/b", 1, { title: "bug in 0.9.1" }), depTarget(dep("^0.14.3")));
-  const zeroNone = scoreIssue(issue("a/b", 1, { title: "bug in 3.0.0" }), depTarget(dep("^0.14.3")));
+  const zeroNone = scoreIssue(issue("a/b", 1, { title: "bug in 0.2.0" }), depTarget(dep("^0.14.3")));
   assert.equal(zeroMinorMiss.score, zeroNone.score);
 });
 
@@ -283,4 +284,39 @@ test("a severity word inside a file path is not a severity signal", () => {
   // The same words outside a path still count.
   assert.ok(scoreIssue(issue("a/b", 1, { title: "Security hole in login", body: longBody }), starred("a/b"), contrib).score > plain.score);
   assert.ok(scoreIssue(issue("a/b", 1, { title: "Crash in src/main.ts on startup", body: longBody }), starred("a/b"), contrib).score > plain.score);
+});
+
+test("a version named as the one that works is not a version match", () => {
+  const body = "Returns [] on 1.1.2, as it did in 0.3.31 before the upgrade.";
+  const r = scoreIssue(issue("a/b", 1, { title: "Relations empty on 1.1.2", body }), depTarget(dep("^0.3.28")));
+  assert.ok(!r.reasons.some((x) => x.startsWith("mentions")), r.reasons.join("; "));
+  const broken = scoreIssue(issue("a/b", 1, { title: "Relations empty", body: "Broken in 0.3.31." }), depTarget(dep("^0.3.28")));
+  assert.ok(broken.reasons.some((x) => x.startsWith("mentions")), broken.reasons.join("; "));
+});
+
+test("a title about a newer major than you run is scored down", () => {
+  const mine = depTarget(dep("^0.3.28"));
+  const newer = scoreIssue(issue("a/b", 1, { title: "Relations empty on SQL Server (1.x regression)" }), mine);
+  const plain = scoreIssue(issue("a/b", 1, { title: "Relations empty on SQL Server (regression)" }), mine);
+  assert.equal(plain.score - newer.score, 15);
+  // Your own major, a platform version and a wildcard range are left alone.
+  const same = scoreIssue(issue("a/b", 1, { title: "Crash on 0.3.x" }), mine);
+  const node = scoreIssue(issue("a/b", 1, { title: "Crash on Node 22.x" }), mine);
+  assert.ok(!same.reasons.some((x) => x.startsWith("title is about")) && !node.reasons.some((x) => x.startsWith("title is about")));
+  assert.ok(!scoreIssue(issue("a/b", 1, { title: "Bug in 2.x" }), depTarget(dep("*"))).reasons.some((x) => x.startsWith("title is about")));
+});
+
+test("a version belonging to another product in the title is not read as the dependency's", () => {
+  const mine = depTarget(dep("^4.2.0"));
+  const ts = scoreIssue(issue("a/b", 1, { title: "baseUrl no longer supported starting with TS-go/TS 7.0" }), mine);
+  assert.ok(!ts.reasons.some((x) => x.startsWith("title is about")), ts.reasons.join("; "));
+  const own = scoreIssue(issue("a/b", 1, { title: "Crash since v5.1.0" }), mine);
+  assert.ok(own.reasons.some((x) => x.startsWith("title is about")), own.reasons.join("; "));
+});
+
+test("a 1.x issue that compares against your 0.3 release in a table is not a version match (typeorm #13021)", () => {
+  const body = "| sqlserver | 1.1.2 | `[]` |\n| sqlserver | 0.3.31 | rows |\n| postgres | 0.3.31 | rows |\nIn 0.3.31 the query was fine.";
+  const r = scoreIssue(issue("a/b", 1, { title: "Relations empty on SQL Server (1.x regression)", body }), depTarget(dep("^0.3.28")));
+  assert.ok(!r.reasons.some((x) => x.startsWith("mentions")), r.reasons.join("; "));
+  assert.ok(r.reasons.some((x) => x.startsWith("title is about")));
 });

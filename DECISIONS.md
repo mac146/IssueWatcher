@@ -48,6 +48,7 @@ Status values: **Accepted**, **Superseded by D-xxx**, **Proposed** (needs the ow
 | D-040 | Test strategy and verification status of the MCP server | Accepted |
 | D-041 | Severity words inside file paths are ignored | Accepted |
 | D-042 | Warm-up, shared loads and window-reuse cache (found by running it for real) | Accepted |
+| D-043 | A title about a newer major than you run is scored down; no version match from its body | Accepted |
 
 ---
 
@@ -472,3 +473,16 @@ D-032 was titled "four task-shaped tools" but listed three tools plus one explic
 **Why this matters beyond speed.** An answer that takes 50 s is, for most users, the same as a server that does not work, and a user decides in their first attempt. It is the kind of defect that only appears with real latency, which is why D-040 requires a real-account run before every release.
 
 **Costs and limits.** Each app launch spends about one GitHub request per watched repo (about 50 of the 5,000 per hour) even if the user never asks; it can be turned off. Only the 20 newest issues per repo are considered in a window, so in a very busy repo older issues inside the window may not appear; the answer does not yet say when a repo hit that cap.
+
+## D-043: A title about a newer major than you run is scored down (found by the first real-client run)
+**What happened.** The first run in Claude Code put typeorm/typeorm #13021 at the top with 100. The issue is a regression in TypeORM **1.x** on SQL Server; the user's project uses `^0.3.28`. The scorer gave +25 for "mentions 0.3.x, you use ^0.3.28", because the body says the query worked in 0.3.31 and compares 0.3.31 and 1.1.2 in a table. The scorer finds version numbers; it cannot tell "broken in X" from "fine in X". Worse, when asked to explain, the assistant relied on that signal and told the user "this is a 0.3.x regression, you may already be affected", which was wrong.
+
+**Change.**
+1. If the **title** names a newer major than every version of that dependency you use ("1.x regression", "since v2.0"), the issue gets -15 (`newer-major`) and the body's version mentions are not used for a version match, since they are comparisons with the old release.
+2. A version directly after words such as "worked in", "as it did in", "before", "previously", "downgrading to" is not counted as a match, in any issue.
+3. A version preceded by another product's name ("TS 7.0", "Node 22.x") is not read as the dependency's. A first version of the rule penalised `tsconfig-paths` for "TS 7.0"; the real-data comparison caught it.
+4. Wildcard ranges (`*`) are left alone: there is no major to compare.
+
+**Checked.** Regression tests for each case, including the real issue text. Re-scoring the 100 saved real issues: no score changed, so nothing else moved. The TypeORM issue goes from 95 to 55 in the same mode.
+
+**Limits.** A title that does not name the version (the version only in the body) still gets the old behaviour apart from rule 2. The wording lists in rules 2 and 3 are English only and will miss phrasings. This is the kind of mistake the rule-based scorer will keep making; the explanation tool exists so the assistant and the user can see the reason, and the reason here was wrong, so the real fix is a labelled data set (see D-036), not more rules.

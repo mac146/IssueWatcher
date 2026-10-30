@@ -48,7 +48,13 @@ Pick your app:
 claude mcp add issuewatcher -e GITHUB_TOKEN=github_pat_xxxxxxxx -- npx -y issuewatcher-mcp
 ```
 
-Then run `/mcp` inside Claude Code to see it connected.
+Then run `/mcp` inside Claude Code to see it connected. The server is added for the current project folder; add `--scope user` to have it in every folder.
+
+**Windows PowerShell** swallows the `--`, which makes Claude Code fail with `unknown option '-y'`. Put the `--` in quotes:
+
+```powershell
+claude mcp add issuewatcher -e "GITHUB_TOKEN=github_pat_xxxxxxxx" '--' npx -y issuewatcher-mcp
+```
 
 </details>
 
