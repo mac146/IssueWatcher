@@ -165,10 +165,11 @@ export class GitHubAPI implements IssueSource {
    */
   async getIssuesSince(owner: string, repo: string, since: Date, max: number): Promise<Issue[]> {
     const sinceMs = since.getTime();
-    const perPage = Math.max(1, Math.min(PER_PAGE, max * 2));
+    // Full pages: the listing mixes in pull requests, which are dropped below, so a small page
+    // on a busy repo is mostly PRs and needs several round trips to reach the window's edge.
     const raw = await this.paginate<RawIssue>(
       `/repos/${owner}/${repo}/issues`,
-      { state: "open", sort: "created", direction: "desc", per_page: perPage },
+      { state: "open", sort: "created", direction: "desc", per_page: PER_PAGE },
       {
         maxPages: 5,
         stopAfter: (page) => page.some((i) => Date.parse(i.created_at ?? "") < sinceMs),

@@ -147,7 +147,7 @@ Restart your AI app, then try:
 - *"Only show issues in nodejs/node and pydantic/pydantic."*
 - *"What repos are you watching for me?"*
 
-IssueWatcher starts loading your repositories as soon as your AI app starts it, so by the time you type your first question the answer is usually instant. If you ask within the first few seconds it may take up to about ten (longer on a slow connection); follow-up questions are instant for the next ten minutes. It looks at the 20 newest issues per repository in the time window.
+IssueWatcher starts loading your repositories as soon as your AI app starts it, so by the time you type your first question the answer is usually instant. If you ask within the first few seconds it may take up to about ten (longer on a slow connection); follow-up questions are instant for the next thirty minutes. It looks at the 20 newest issues per repository in the time window.
 
 ## What the assistant can do (the tools)
 

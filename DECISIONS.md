@@ -50,6 +50,7 @@ Status values: **Accepted**, **Superseded by D-xxx**, **Proposed** (needs the ow
 | D-042 | Warm-up, shared loads and window-reuse cache (found by running it for real) | Accepted |
 | D-043 | A title about a newer major than you run is scored down; no version match from its body | Accepted |
 | D-044 | Recommend a global install because npx can exceed the 30 s startup limit | Accepted |
+| D-045 | Full-size pages and a 30-minute cache after partial answers in a real session | Accepted |
 
 ---
 
@@ -498,3 +499,14 @@ D-032 was titled "four task-shaped tools" but listed three tools plus one explic
 **Why not "fix it in code".** Nothing in our process can speed up npx, and a server that connects instantly (as ours does) cannot be made faster by us. The honest options were to document the fast path, or to ship only as a bundle/binary; the first is cheap and enough for now.
 
 **Limits.** `npm install -g` needs permission to write to npm's global folder on some systems, and users must re-run it to update. A single-file download or a Homebrew/winget package would remove that step; not worth it before there are users.
+
+## D-045: Full-size pages and a 30-minute cache, after partial answers in a real session (first real-client run, part 2)
+**What happened.** In a 25-minute Claude Code session on a real account, the first question was instant (warm-up) but later ones came back partial: "hit its time limit after 24 of 51 repos", "18 of 35", "18 of 51". Two causes, both found by measuring instead of guessing.
+1. **The cache lived 10 minutes.** Questions asked after a short break found everything expired and re-fetched the whole watch list cold under the 20 s budget, on a network where each GitHub call is slow (npx alone took 13 to 29 s, D-044).
+2. **Small pages on busy repos.** The issue listing asked for `max x 2` = 40 items per page. GitHub's listing includes pull requests, which are dropped afterwards, so on a busy repo (TypeScript, Nest) a page is mostly PRs and a 7 or 30-day window needed up to five sequential requests and was still truncated ("Pagination cap reached for microsoft/TypeScript/issues").
+
+**Changes.** Request 100 items per page (the same single request on quiet repos; one or two instead of five on busy ones), and keep results for 30 minutes (`ISSUEWATCHER_CACHE_TTL_MS` still overrides it). Issue lists change slowly relative to a "what should I work on" question, and an answer up to 30 minutes old is the price of an instant one.
+
+**Measured** (fresh cache folder, no warm-up, real account): 7-day question 20 s partial -> 15.9 s complete; 30-day dependency question 20 s partial -> 7.5 s complete; a following 24 h question 5.3 s -> 0.0 s. 214 tests pass.
+
+**Still open.** A truly cold first question on a slow connection can take about 16 s, close to the 20 s budget; the notice and the background load still cover that case. A repo with hundreds of new issues in the window is still capped at 5 pages (500 items). Starred course/assignment repos add noise; `IGNORE_REPOS` already handles that and is mentioned in the docs. A monorepo whose package.json sits in a subfolder (this repo: `mcp-server/`) is not detected as a project that uses dependencies.

@@ -172,7 +172,7 @@ export class Radar {
     this.budgetMs = opts.budgetMs ?? 20_000;
     this.perRepoMax = opts.perRepoMax ?? 20;
     this.defaultMode = opts.defaultMode ?? "both";
-    const ttl = opts.cacheTtlMs ?? 10 * 60_000;
+    const ttl = opts.cacheTtlMs ?? 30 * 60_000;
     this.repoIssues = new TtlCache(ttl, 500, this.now);
     this.singleIssues = new TtlCache(ttl, 500, this.now);
     this.targetsCache = new TtlCache(ttl, 1, this.now);

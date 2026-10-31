@@ -118,7 +118,7 @@ export function createIssueWatcherServer(deps: ServerDeps): McpServer {
         "their own projects depend on. Each issue has a 0-100 score and plain-language reasons. Use mode " +
         "'contributor' for 'what could I pick up and fix?' (good first issues, unassigned, fresh, not already " +
         "claimed) and 'consumer' for 'what could break my projects?'. Returns titles, labels, scores and links, " +
-        "not issue bodies. Results are cached for about 10 minutes.",
+        "not issue bodies. Results are cached for about 30 minutes.",
       inputSchema: rankedInput,
       outputSchema: rankedOut,
       annotations: { title: "Get ranked issues", ...READ_ONLY },

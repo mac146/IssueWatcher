@@ -74,7 +74,7 @@ export function loadMcpSettings(env: Env = process.env): { settings: McpSettings
     cacheDir: path.resolve(text(env, "ISSUEWATCHER_CACHE_DIR") ?? path.join(os.homedir(), ".issuewatcher")),
     concurrency: int("ISSUEWATCHER_CONCURRENCY", 8, 1, 32),
     budgetMs: int("ISSUEWATCHER_BUDGET_MS", 20_000, 1_000, 120_000),
-    cacheTtlMs: int("ISSUEWATCHER_CACHE_TTL_MS", 600_000, 0, 86_400_000),
+    cacheTtlMs: int("ISSUEWATCHER_CACHE_TTL_MS", 1_800_000, 0, 86_400_000),
     prefetch: env.ISSUEWATCHER_PREFETCH?.trim().toLowerCase() !== "false",
   };
   return { settings, problems };
