@@ -307,3 +307,9 @@ test("relevantDependencies narrows DefinitelyTyped issues to the @types package 
   const generic = relevantDependencies({ repo: "DefinitelyTyped/DefinitelyTyped", title: "CI is slow" }, t);
   assert.equal(generic.deps.length, 2);
 });
+
+test("a failure that carries a success status is described as a network problem, not 'HTTP 200'", async () => {
+  const { classifyError } = await import("../mcp/radar.js");
+  const cut = Object.assign(new Error("aborted"), { isAxiosError: true, response: { status: 200, headers: {} } });
+  assert.match(classifyError(cut).message, /network error/);
+});

@@ -51,6 +51,8 @@ Status values: **Accepted**, **Superseded by D-xxx**, **Proposed** (needs the ow
 | D-043 | A title about a newer major than you run is scored down; no version match from its body | Accepted |
 | D-044 | Recommend a global install because npx can exceed the 30 s startup limit | Accepted |
 | D-045 | Full-size pages and a 30-minute cache after partial answers in a real session | Accepted |
+| D-046 | Verify a release locally end to end before publishing (npm run verify:release) | Accepted |
+| D-047 | A hung registry must not stall startup or poison the 24-hour cache | Accepted |
 
 ---
 
@@ -510,3 +512,35 @@ D-032 was titled "four task-shaped tools" but listed three tools plus one explic
 **Measured** (fresh cache folder, no warm-up, real account): 7-day question 20 s partial -> 15.9 s complete; 30-day dependency question 20 s partial -> 7.5 s complete; a following 24 h question 5.3 s -> 0.0 s. 214 tests pass.
 
 **Still open.** A truly cold first question on a slow connection can take about 16 s, close to the 20 s budget; the notice and the background load still cover that case. A repo with hundreds of new issues in the window is still capped at 5 pages (500 items). Starred course/assignment repos add noise; `IGNORE_REPOS` already handles that and is mentioned in the docs. A monorepo whose package.json sits in a subfolder (this repo: `mcp-server/`) is not detected as a project that uses dependencies.
+
+## D-046: A release is verified locally, end to end, before it is published (`npm run verify:release`)
+**Why.** Three patch releases in a row (0.2.0, 0.2.1, and the 0.2.2 fixes) were each followed by a real-client run that found something the 214 unit tests could not: a version-match false positive (D-043), an `npx` start that exceeded the client's 30 s limit (D-044), partial scans from a short cache and small pages (D-045). Every one of those cost a publish. Publishing is the slow, passkey-gated, hard-to-undo step (a version number can never be reused), so the testing has to move in front of it.
+
+**What it does** (`mcp-server/scripts/verify-release.ts`, exits 1 on any failure; skipped phases are reported as skipped, never as passed):
+1. typecheck, lint, the full suite;
+2. stage and pack exactly what npm would publish, check the file list (no secrets, tests or notes), install the tarball in an empty folder, run it;
+3. drive the INSTALLED package over real stdio against the real account: first-ever question (empty cache, no warm-up) and a returning user (cached dependency list, warm-up on). It checks the tool list and read-only annotations, answer completeness and speed, sorted scores 0 to 100, plain github.com links, no issue bodies, repo filter, minimum score, a refused 365-day window, a helpful error for a malformed one, explanation adding up to the score, excerpts labelled as third-party text, an error (not a crash) for a missing issue, and that **the token appears in no output and no log** and the log has no stack traces;
+4. build the Docker image, run the Docker tests, repeat the live checks through the container;
+5. build the Claude Desktop bundle, unpack it, launch it from its own manifest the way Claude Desktop does, repeat the live checks.
+
+Speed and completeness checks measure the network first and warn (not fail) when GitHub itself is slow, so the check does not cry wolf on a bad connection; correctness checks never relax.
+
+**What running it found, before anything was published** (all fixed, with tests):
+- A connection cut while a response was arriving was reported as "GitHub returned an error (HTTP 200)" and never retried: axios attaches the 200 it had already received. It is now a retried network error.
+- npm and PyPI lookups had no retry, so one dropped connection silently removed a package from the watch list. Now 3 attempts.
+- Dependency discovery with an empty cache took 29 to 103 s because registry lookups ran 5 at a time; at 12 and 6 it takes 4 to 7 s. This is every new user's first run.
+- The warm-up preloaded 3 days, but assistants ask for "this week" (7 days), so a returning user's first question took 9 s. Warm-up and every fetch now cover 7 days; the first question is instant.
+- Warnings printed stack traces to the log; only real errors do now.
+
+**What it does not cover.** The GUI apps themselves (Claude Desktop, Cursor, VS Code): it launches the bundle from its manifest but a person must still open the app once. macOS and Linux. Result quality (D-036: that needs labelled data). Registry/directory publishing.
+
+## D-047: A hung registry must not stall startup or poison the cache (found by D-046's check on a bad network day)
+**What happened.** Two full release checks failed on the Claude Desktop bundle while the installed package and the Docker image passed in the same run. The bundle was not at fault: both took 19 to 65 s for the same first-run scan, with the identical axios version, and the cause was measured directly: PyPI accepted connections and finished TLS in half a second, then never answered (30 s timeouts for pydantic, fastapi, pymupdf). The `api.github.com/zen` probe said "fine" because GitHub was fine.
+
+**Two real weaknesses this exposed.**
+1. **Retries multiplied the wait.** D-046 had just added three attempts for registry calls (and GitHub already had four). A timeout was retried too, so one hung registry cost 3 x 15 s per package. A server that did not answer in time will not answer the second time. Now: the registry timeout is 10 s, a timeout is never retried for registries and retried once for GitHub; dropped connections and 5xx are still retried.
+2. **An outage poisoned the 24-hour cache.** A package whose lookup failed was silently left out of the dependency map, and the map was cached for a day. If PyPI was down at a user's first run, their Python dependencies would vanish for 24 hours with nothing to tell them why. Now a map built while any lookup failed (not "no such package", which is a normal 404) is cached as nearly expired and rebuilt after 15 minutes, and the log says so.
+
+**Checked.** Tests for both. A simulated PyPI that never answers: the setup check completes in under 30 s, drops only the 8 Python packages, and writes a list that expires in 15 minutes instead of 1,440.
+
+**Limits.** The packages that failed are absent for up to 15 minutes, not retried individually. A permanently unreachable registry (a firewall) means a rebuild attempt every 15 minutes at 10 s each. The release check's network probe only measures GitHub; the registries are covered by the retry rule above, not by the probe.

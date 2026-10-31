@@ -1,6 +1,6 @@
 {
   "name": "issue-watcher",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Emails AI summaries of new issues in your starred GitHub repositories",
   "main": "build/index.js",
   "engines": {
@@ -18,7 +18,8 @@
     "eval:report": "tsx src/eval/cli.ts report",
     "eval:rebuild": "tsx src/eval/cli.ts rebuild",
     "package:mcp": "tsx scripts/stage-mcp.ts",
-    "build:mcpb": "tsx scripts/build-mcpb.ts"
+    "build:mcpb": "tsx scripts/build-mcpb.ts",
+    "verify:release": "tsx scripts/verify-release.ts"
   },
   "keywords": [],
   "author": "",

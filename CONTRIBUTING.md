@@ -34,7 +34,7 @@ docker build --target mcp -t issuewatcher-mcp:test .
 IW_DOCKER_IMAGE=issuewatcher-mcp:test node --test build/__tests__/mcp-docker.test.js
 ```
 
-Rules that tests enforce: nothing but protocol messages on stdout (log to stderr); no tool may write to GitHub; everything from an issue goes through `mcp/sanitize.ts`; the published package may depend only on what the server imports. Unit tests use a fast fake network, so also run the server against your real account before releasing: two real-world problems (a slow cold start, and a cache that missed on a different time window) were only found that way. Releasing: [docs/PUBLISHING.md](docs/PUBLISHING.md).
+Rules that tests enforce: nothing but protocol messages on stdout (log to stderr); no tool may write to GitHub; everything from an issue goes through `mcp/sanitize.ts`; the published package may depend only on what the server imports. Unit tests use a fast fake network, so also run the server against your real account before releasing: two real-world problems (a slow cold start, and a cache that missed on a different time window) were only found that way. **Before every release run `npm run verify:release`** (needs `GITHUB_TOKEN` or `.env`, and Docker running; `--skip-docker`, `--skip-mcpb`, `--skip-tests` skip a phase and are reported as skipped). It tests the exact package that would be published, over real stdio, against a real account, and prints READY or NOT READY. Only publish on READY. Releasing: [docs/PUBLISHING.md](docs/PUBLISHING.md).
 
 ## Guidelines
 - Add or update tests for behaviour changes. Tests use the built-in `node:test` runner and live in `src/__tests__/`; use the fakes in `helpers.ts` rather than hitting real APIs.

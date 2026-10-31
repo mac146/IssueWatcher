@@ -154,3 +154,49 @@ test("buildTargets merges starred repos and dependencies case-insensitively", ()
   assert.equal(axios.dependencies.length, 1);
   assert.equal(targets.find((t) => t.name === "flask")!.starred, false);
 });
+
+test("a registry lookup survives a dropped connection and a 503, but a 404 is just 'no repo'", async () => {
+  const { HttpRegistry } = await import("../deps/registry.js");
+  const fail = (response?: { status: number }) => Object.assign(new Error("x"), { isAxiosError: true, response });
+  const script = [fail(), fail({ status: 503 })];
+  let calls = 0;
+  const client = {
+    get: async () => {
+      calls++;
+      const next = script.shift();
+      if (next) throw next;
+      return { data: { repository: "git+https://github.com/o/r.git" } };
+    },
+  } as never;
+  assert.equal(await new HttpRegistry(client).resolve("npm", "pkg"), "o/r");
+  assert.equal(calls, 3);
+
+  const missing = { get: async () => { throw fail({ status: 404 }); } } as never;
+  assert.equal(await new HttpRegistry(missing).resolve("npm", "nope"), null);
+});
+
+test("a registry timeout is not retried, and a map built during an outage expires early", async () => {
+  const { HttpRegistry } = await import("../deps/registry.js");
+  const { incompleteMaps } = await import("../deps/discovery.js");
+  let calls = 0;
+  const timeout = Object.assign(new Error("timeout"), { isAxiosError: true, code: "ECONNABORTED" });
+  const hung = { get: async () => { calls++; throw timeout; } } as never;
+  await assert.rejects(new HttpRegistry(hung).resolve("pypi", "pydantic"));
+  assert.equal(calls, 1);
+
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "iw-inc-"));
+  const file = path.join(dir, "dependencies.json");
+  const DAY = 24 * 3_600_000;
+  let clock = 1_000_000_000;
+  const incomplete = {} as import("../deps/discovery.js").DependencyMap;
+  incompleteMaps.add(incomplete);
+  let runs = 0;
+  const cache = new CachedDiscovery(async () => (++runs === 1 ? incomplete : { "o/r": [] }), file, DAY, () => clock);
+  await cache.get();
+  clock += 5 * 60_000; // inside the 15-minute retry window: served from the cache
+  await cache.get();
+  assert.equal(runs, 1);
+  clock += 11 * 60_000; // past it: rebuilt, long before a day
+  await cache.get();
+  assert.equal(runs, 2);
+});

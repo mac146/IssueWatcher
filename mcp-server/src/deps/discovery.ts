@@ -22,6 +22,14 @@ export type DiscoveryOptions = {
 /** "owner/name" of a watched repo to the dependencies of the user's that live there. */
 export type DependencyMap = Record<string, DependencyUse[]>;
 
+/**
+ * Maps built while some registry lookups failed (a registry outage, not "no such package"). They are
+ * usable, but must not be cached for the full day: the missing packages would stay missing.
+ */
+export const incompleteMaps = new WeakSet<DependencyMap>();
+/** How long an incomplete map is kept before discovery is tried again. */
+const INCOMPLETE_RETRY_MS = 15 * 60_000;
+
 type Aggregated = ManifestDependency & { usedBy: Set<string> };
 
 const DAY_MS = 86_400_000;
@@ -65,7 +73,7 @@ export async function discoverDependencies(
   }
 
   const aggregated = new Map<string, Aggregated>();
-  await inPool(repos, 4, async ({ owner, name }) => {
+  await inPool(repos, 6, async ({ owner, name }) => {
     for (const file of MANIFEST_FILES) {
       let text: string | null;
       try {
@@ -98,10 +106,12 @@ export async function discoverDependencies(
     )
     .slice(0, opts.maxDependencies);
 
-  const resolved = await inPool(ranked, 5, async (dep) => {
+  let lookupFailures = 0;
+  const resolved = await inPool(ranked, 12, async (dep) => {
     try {
       return await registry.resolve(dep.ecosystem, dep.pkg);
     } catch (err) {
+      lookupFailures++;
       logger.warn(`Registry lookup failed for ${dep.ecosystem}:${dep.pkg}`, err);
       return null;
     }
@@ -116,6 +126,10 @@ export async function discoverDependencies(
   logger.info(
     `Dependency scan: ${repos.length} repo(s), ${aggregated.size} package(s), ${Object.keys(map).length} source repo(s) resolved`,
   );
+  if (lookupFailures > 0) {
+    logger.warn(`${lookupFailures} registry lookup(s) failed; the list will be rebuilt in 15 minutes`);
+    incompleteMaps.add(map);
+  }
   return map;
 }
 
@@ -139,7 +153,9 @@ export class CachedDiscovery {
     if (cached && this.now() - cached.fetchedAt < this.ttlMs) return cached.map;
     try {
       const map = await this.run();
-      await this.write({ fetchedAt: this.now(), map });
+      // An incomplete map is stored as if it were already almost expired, so the next start retries sooner.
+      const fetchedAt = incompleteMaps.has(map) ? this.now() - this.ttlMs + Math.min(INCOMPLETE_RETRY_MS, this.ttlMs) : this.now();
+      await this.write({ fetchedAt, map });
       return map;
     } catch (err) {
       logger.warn("Dependency discovery failed; using cached list if any", err);

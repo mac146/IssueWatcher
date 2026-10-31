@@ -38,7 +38,9 @@ function nextLink(res: AxiosResponse): string | null {
 /** Milliseconds to wait before retrying, or null if the failure is not retryable. */
 function retryDelay(err: AxiosError, attempt: number): number | null {
   const status = err.response?.status;
-  if (!err.response) return 500 * 2 ** attempt; // network error / timeout
+  // A network error, a timeout, or a connection cut while the body was still arriving (axios then
+  // reports an error that carries the 200 it had already received).
+  if (!err.response || (status !== undefined && status < 400)) return 500 * 2 ** attempt;
 
   const headers = err.response.headers;
   const retryAfter = Number(headers["retry-after"]);
@@ -80,7 +82,9 @@ export class GitHubAPI implements IssueSource {
         return await this.client.get<T>(url, { params });
       } catch (err) {
         const delay = axios.isAxiosError(err) ? retryDelay(err, attempt) : null;
-        if (delay === null || attempt >= MAX_RETRIES || delay > MAX_RATE_LIMIT_WAIT_MS) throw err;
+        // One retry after a timeout, not three: each try waits the full timeout.
+        const timedOut = axios.isAxiosError(err) && (err.code === "ECONNABORTED" || err.code === "ETIMEDOUT");
+        if (delay === null || attempt >= (timedOut ? 1 : MAX_RETRIES) || delay > MAX_RATE_LIMIT_WAIT_MS) throw err;
         logger.warn(`GitHub request failed (${url}), retrying in ${Math.round(delay / 1000)}s`);
         await sleep(delay);
       }

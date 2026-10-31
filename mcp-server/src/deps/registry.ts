@@ -26,10 +26,13 @@ type PypiInfo = { info?: { project_urls?: Record<string, string> | null; home_pa
 
 export type RegistryUrls = { npm: string; pypi: string };
 
+const MAX_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 400;
+
 export class HttpRegistry implements Registry {
   constructor(
     private readonly client: AxiosInstance = axios.create({
-      timeout: 15_000,
+      timeout: 10_000,
       headers: { "User-Agent": "IssueWatcher" },
     }),
     /** Overridden in tests (a local stub) and for registry mirrors. */
@@ -37,12 +40,22 @@ export class HttpRegistry implements Registry {
   ) {}
 
   async resolve(ecosystem: DependencyUse["ecosystem"], pkg: string): Promise<string | null> {
-    try {
-      return ecosystem === "npm" ? await this.npm(pkg) : await this.pypi(pkg);
-    } catch (err) {
-      // An unknown package is a normal "no repo"; anything else should surface.
-      if (axios.isAxiosError(err) && err.response?.status === 404) return null;
-      throw err;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return ecosystem === "npm" ? await this.npm(pkg) : await this.pypi(pkg);
+      } catch (err) {
+        // An unknown package is a normal "no repo"; anything else should surface.
+        if (axios.isAxiosError(err) && err.response?.status === 404) return null;
+        // A dropped connection or a registry hiccup is worth a second try; losing the package
+        // would silently remove its repo from the watch list.
+        const status = axios.isAxiosError(err) ? err.response?.status : undefined;
+        // A timeout is not retried: a server that did not answer in 10 s will not answer the second time
+        // either, and three tries would turn one hung registry into half a minute of waiting.
+        const timedOut = axios.isAxiosError(err) && (err.code === "ECONNABORTED" || err.code === "ETIMEDOUT");
+        const transient = axios.isAxiosError(err) && !timedOut && (status === undefined || status < 400 || status >= 500);
+        if (!transient || attempt >= MAX_ATTEMPTS - 1) throw err;
+        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * (attempt + 1)));
+      }
     }
   }
 

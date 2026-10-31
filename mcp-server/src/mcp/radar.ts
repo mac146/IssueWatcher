@@ -14,7 +14,7 @@ import { TtlCache } from "./ttl-cache.js";
 const HOUR_MS = 3_600_000;
 
 /** Every fetch reaches back at least this far, so a later question about a shorter window reuses it. */
-const MIN_FETCH_HOURS = 72;
+const MIN_FETCH_HOURS = 168;
 
 /** One repo's recent issues, and how far back the fetch that produced them reached. */
 type RepoEntry = { fetchedSince: number; issues: Issue[] };
@@ -126,7 +126,8 @@ export class RadarError extends Error {
 /** Turns any failure into a RadarError with a fixed, safe message. */
 export function classifyError(err: unknown): RadarError {
   if (err instanceof RadarError) return err;
-  if (axios.isAxiosError(err) && err.response) {
+  // A response that arrived with a success status but failed anyway was cut off mid-body: a network problem.
+  if (axios.isAxiosError(err) && err.response && err.response.status >= 400) {
     const { status, headers } = err.response;
     if (status === 401) {
       return new RadarError("GitHub rejected the token (401). Create a new token and update GITHUB_TOKEN.", "auth");
@@ -246,7 +247,7 @@ export class Radar {
    * finds them ready instead of waiting. Never throws: if something fails, the real question will
    * hit the same problem and report it properly.
    */
-  async warmUp(sinceHours = 72): Promise<void> {
+  async warmUp(sinceHours = MIN_FETCH_HOURS): Promise<void> {
     try {
       const targets = await this.targets();
       const since = new Date(this.now() - sinceHours * HOUR_MS);

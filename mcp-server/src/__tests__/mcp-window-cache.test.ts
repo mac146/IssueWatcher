@@ -37,11 +37,11 @@ test("a question about a longer window than was loaded fetches again, once", asy
   assert.equal(src.calls.length, 2, "and that fetch now covers everything shorter");
 });
 
-test("even a short question loads at least three days, because it costs the same single request", async () => {
+test("even a short question loads at least seven days, because it costs the same single request", async () => {
   const src = fakeSource(data());
   await makeRadar(src, [watch("a/b")]).ranked(params(6));
   assert.equal(src.calls.length, 1);
-  assert.equal(src.calls[0]!.since.getTime(), NOW - 72 * HOUR);
+  assert.equal(src.calls[0]!.since.getTime(), NOW - 168 * HOUR);
 });
 
 test("questions about different windows at the same moment share one fetch per repo", async () => {

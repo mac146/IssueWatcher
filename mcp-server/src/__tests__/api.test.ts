@@ -90,3 +90,17 @@ test("starred repos are paginated", async () => {
     { owner: "o", name: "b" },
   ]);
 });
+
+test("a connection cut while the body was arriving is retried, not reported as an HTTP 200 failure", async () => {
+  let n = 0;
+  const cut = Object.assign(new Error("aborted"), { isAxiosError: true, response: { status: 200, headers: {}, data: undefined } });
+  const client = {
+    get: async () => {
+      if (n++ === 0) throw cut;
+      return { data: [{ number: 5 }], headers: {} };
+    },
+  } as unknown as AxiosInstance;
+  const res = await new GitHubAPI("t", client).getNewIssues("o", "r", null);
+  assert.equal(res.highWater, 5);
+  assert.equal(n, 2);
+});

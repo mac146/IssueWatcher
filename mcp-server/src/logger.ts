@@ -15,7 +15,10 @@ function log(level: Level, msg: string, meta?: unknown): void {
   const line = `${new Date().toISOString()} ${level.toUpperCase()} ${msg}`;
   const sink = allToStderr ? console.error : level === "info" ? console.log : console[level];
   if (meta === undefined) sink(line);
-  else sink(line, meta instanceof Error ? meta.stack ?? meta.message : meta);
+  // Stack traces are for real faults. A warning is an expected failure (a dropped connection, a
+  // missing file) and a one-line message says everything a user needs.
+  else if (meta instanceof Error) sink(line, level === "error" ? meta.stack ?? meta.message : meta.message);
+  else sink(line, meta);
 }
 
 export const logger = {
