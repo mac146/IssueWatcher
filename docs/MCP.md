@@ -29,6 +29,14 @@ A classic token (starts with `ghp_`) with the `public_repo` scope also works. Ne
 
 ### 2. Add IssueWatcher to your AI app
 
+**Recommended: install once so the server starts instantly.** The commands below use `npx`, which re-checks npm every time your app starts the server. On a slow connection or on Windows that can take 15 to 30 seconds, and some apps give up waiting (Claude Code stops at 30). Installing it once makes startup take under a second:
+
+```bash
+npm install -g issuewatcher-mcp
+```
+
+Then, in any config below, use the command `issuewatcher-mcp` (with no arguments) instead of `npx -y issuewatcher-mcp`. For example, in Claude Code: `claude mcp add issuewatcher -e GITHUB_TOKEN=github_pat_xxxxxxxx -- issuewatcher-mcp`. To update later, run the same install command again. If you would rather not install it, the `npx` form below works and only the first start is slow.
+
 Pick your app:
 
 <details>
@@ -198,6 +206,7 @@ LLM API keys (Gemini, OpenAI, Claude, Groq, ...) are only used by the *separate*
 | Symptom | What to try |
 | --- | --- |
 | App shows "server disconnected" or no tools | Run the `--check` command from step 3 in a terminal; it prints the exact problem. Make sure Node.js 20 or newer is installed (`node --version`). |
+| "Connection timed out" (for example after 30 s) when the app starts | Almost always `npx` being slow, not the server. Run `npm install -g issuewatcher-mcp` once and use the command `issuewatcher-mcp` instead of `npx -y issuewatcher-mcp`. Startup then takes under a second. |
 | "needs a GitHub token" | The token is missing or not passed to the server. Re-check the `env` / `-e` setting and restart the app. |
 | "GitHub rejected the token (401)" | The token expired or was copied wrongly. Create a new one. |
 | "No repositories to watch" | You have not starred any repositories yet. Star a few and try again. |

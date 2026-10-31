@@ -49,6 +49,7 @@ Status values: **Accepted**, **Superseded by D-xxx**, **Proposed** (needs the ow
 | D-041 | Severity words inside file paths are ignored | Accepted |
 | D-042 | Warm-up, shared loads and window-reuse cache (found by running it for real) | Accepted |
 | D-043 | A title about a newer major than you run is scored down; no version match from its body | Accepted |
+| D-044 | Recommend a global install because npx can exceed the 30 s startup limit | Accepted |
 
 ---
 
@@ -486,3 +487,14 @@ D-032 was titled "four task-shaped tools" but listed three tools plus one explic
 **Checked.** Regression tests for each case, including the real issue text. Re-scoring the 100 saved real issues: no score changed, so nothing else moved. The TypeORM issue goes from 95 to 55 in the same mode.
 
 **Limits.** A title that does not name the version (the version only in the body) still gets the old behaviour apart from rule 2. The wording lists in rules 2 and 3 are English only and will miss phrasings. This is the kind of mistake the rule-based scorer will keep making; the explanation tool exists so the assistant and the user can see the reason, and the reason here was wrong, so the real fix is a labelled data set (see D-036), not more rules.
+
+## D-044: Recommend a global install; `npx` can exceed the client's 30 s startup limit (found by the first real-client run)
+**What happened.** After the first successful run, a later Claude Code session reported the server "timed out after 30s". Its connection log showed no output from the server at all for 30 s on one start, and "ready" only 22.6 s after launch on another. The server itself prints "ready" in under a second; the time was spent before our code ran.
+
+**Measured on the same Windows machine** (`--version`, which does no network work): `npx -y issuewatcher-mcp` 29 s, then 14 s, `npx -y issuewatcher-mcp@0.2.1` 8 s, `npx --offline` 5 s (the floor, pure npx overhead), against a global install **0.7 to 0.9 s**. An unversioned `npx` asks the registry on every start, so it is also at the mercy of the network.
+
+**Decision.** The docs lead with `npm install -g issuewatcher-mcp` and the command `issuewatcher-mcp`, and keep `npx` as the no-install option with the caveat. The troubleshooting table names this timeout. The Claude Desktop bundle runs the server directly with Node, not through npx, so it is unaffected (checked in the manifest). The server code needed no change.
+
+**Why not "fix it in code".** Nothing in our process can speed up npx, and a server that connects instantly (as ours does) cannot be made faster by us. The honest options were to document the fast path, or to ship only as a bundle/binary; the first is cheap and enough for now.
+
+**Limits.** `npm install -g` needs permission to write to npm's global folder on some systems, and users must re-run it to update. A single-file download or a Homebrew/winget package would remove that step; not worth it before there are users.
