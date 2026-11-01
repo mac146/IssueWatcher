@@ -47,6 +47,10 @@ const LABEL_HELP = /(help[ -]wanted|hacktoberfest|contributions?[ -]welcome)/i;
 /** A request for new behaviour ("[Feature]: ...", "Feature Request: ..."), as opposed to a report of something broken. */
 const PROPOSAL_TITLE = /^\s*\[?\s*(?:feature|proposal|rfc|enhancement)\b[^\]:]*\]?\s*[:-]|\bfeature request\b/i;
 const DAY_H = 24;
+/** Work for the maintainers (CI, releases, bots), not a problem for users and not a task for an outside contributor. */
+const MAINTENANCE_TITLE = /^\s*(?:chore|ci|build)(?:\([^)]*\))?\s*:|\b(?:trusted publishing|release workflow|github actions?|dependabot|renovate)\b/i;
+/** "docs: ..." and "docs(scope): ..." conventional-commit style titles. */
+const DOCS_TITLE = /^\s*docs?(?:\([^)]*\))?\s*:/i;
 const REPRO = /(steps to reproduce|expected (?:behaviou?r|result)|actual (?:behaviou?r|result)|traceback|stack ?trace|minimal reproduc|reproduction)/i;
 const HOUR_MS = 3_600_000;
 const TEST_WORK = /\b(tests?|testing|suite)\b/i;
@@ -231,6 +235,12 @@ export function scoreIssueDetailed(issue: Issue, target: WatchTarget, opts: Scor
   score += severity;
   if (severity > severityCap) {
     add(severityCap - severity, "severity-cap", undefined, `severity capped at ${severityCap}${devOnly ? " (dev dependency)" : ""}`);
+  }
+
+  if (MAINTENANCE_TITLE.test(issue.title)) {
+    add(-15, "maintenance", "maintenance task for the maintainers");
+  } else if (consumer && !contributor && DOCS_TITLE.test(issue.title)) {
+    add(-10, "docs-title", "documentation issue");
   }
 
   // Dismissals and noise.

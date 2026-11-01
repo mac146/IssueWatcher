@@ -356,3 +356,22 @@ test("the freshness gradient, staleness and proposals are contributor-only: cons
   const r = scoreIssue(i, depTarget(dep("^1.0.0")), { mode: "consumer", now: NOW });
   assert.ok(!r.reasons.some((x) => /no replies|nobody has answered|opened this week/.test(x)), r.reasons.join("; "));
 });
+
+test("maintenance chores are scored down in every mode; docs titles only for someone who is not contributing", () => {
+  const recent = hoursAgo(30);
+  const reasonsFor = (title: string, mode: "consumer" | "contributor" | "both") =>
+    scoreIssue(issue("a/b", 1, { title, createdAt: recent, comments: 1 }), depTarget(dep("^1.0.0")), { mode, now: NOW }).reasons;
+  for (const mode of ["consumer", "contributor", "both"] as const) {
+    assert.ok(reasonsFor("Enable trusted publishing for @scope/* packages", mode).some((r) => /maintenance task/.test(r)), mode);
+    assert.ok(reasonsFor("chore: bump the release tooling", mode).some((r) => /maintenance task/.test(r)), mode);
+    assert.ok(reasonsFor("ci(release): pin the workflow runner", mode).some((r) => /maintenance task/.test(r)), mode);
+  }
+  assert.ok(reasonsFor("Migrate from Dependabot to Renovate", "consumer").some((r) => /maintenance task/.test(r)));
+  assert.ok(reasonsFor("docs: Select Query Builder examples fail", "consumer").some((r) => /documentation issue/.test(r)));
+  assert.ok(!reasonsFor("docs: Select Query Builder examples fail", "contributor").some((r) => /documentation issue/.test(r)));
+  assert.ok(!reasonsFor("docs: Select Query Builder examples fail", "both").some((r) => /documentation issue/.test(r)));
+  // Ordinary bug reports that merely mention these words in other ways are untouched.
+  for (const title of ["fix: arrayUnique is O(n^2)", "Crash when the build step runs twice", "Documentation generator drops overloads"]) {
+    assert.ok(!reasonsFor(title, "consumer").some((r) => /maintenance task|documentation issue/.test(r)), title);
+  }
+});
