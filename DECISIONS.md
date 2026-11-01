@@ -564,6 +564,6 @@ Speed and completeness checks measure the network first and warn (not fail) when
 
 **Decision.** Do not rely on wording alone: an app's model decides per question whether a connected tool is needed, and a bare "what should I work on" is genuinely ambiguous. Every suggested question in the README, setup guide, demo script, bundle description and `--check` output now says "What GitHub issues should I work on today?", and the setup guide has a short tip: add "use IssueWatcher" or pick it from the chat box's tools or prompts menu. The description changes stay (they cost nothing and may help other models).
 
-**Not yet measured.** Whether "What GitHub issues should I work on today?" alone (no "use IssueWatcher") triggers the tool in Claude Desktop. Claude Code called the tool for the bare question; Claude Desktop did not. Cursor and VS Code are untested.
+**Measured afterwards.** "What GitHub issues should I work on today?" in a new Claude Desktop chat called the tool and produced a good ranked answer (51 repos checked, 106 issues). That is one trial by the author, not a measured rate. Claude Code called the tool even for the vague question; Claude Desktop did not. Cursor and VS Code are untested.
 
 **Why this matters for launch.** The demo and the posts must show a question that works the first time. A new user who types the vague question, gets life advice and never sees a ranked list will conclude the tool is broken.
