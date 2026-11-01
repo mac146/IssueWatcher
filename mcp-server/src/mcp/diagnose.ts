@@ -76,6 +76,6 @@ export async function runCheck(
   }
 
   write(`\nMode: ${settings.mode}. Cache folder: ${settings.cacheDir}`);
-  write(failed ? "\nSetup needs attention (see above)." : "\nAll good. Add this server to your AI app, then ask: \"What should I work on today?\"");
+  write(failed ? "\nSetup needs attention (see above)." : "\nAll good. Add this server to your AI app, then ask: \"What GitHub issues should I work on today?\"");
   return failed ? 1 : 0;
 }

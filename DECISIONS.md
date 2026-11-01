@@ -54,6 +54,7 @@ Status values: **Accepted**, **Superseded by D-xxx**, **Proposed** (needs the ow
 | D-046 | Verify a release locally end to end before publishing (npm run verify:release) | Accepted |
 | D-047 | A hung registry must not stall startup or poison the 24-hour cache | Accepted |
 | D-048 | Smaller pages, a cap on registry time and a 30 s budget after the first Claude Desktop run | Accepted |
+| D-049 | Better wording did not trigger the tool for a vague question; docs now suggest a question that names GitHub issues | Accepted |
 
 ---
 
@@ -557,3 +558,12 @@ Speed and completeness checks measure the network first and warn (not fail) when
 3. **Tool-call budget 20 s -> 30 s.** Most clients allow 60 s per call; the answer is still partial with an honest notice if it runs out.
 
 **Limits.** A first-ever question on a poor connection can still take 20 to 30 s, because discovery and the issue fetch run one after the other; overlapping them (scan the starred repos while dependencies resolve) is the next step if first-run speed matters in real use. A stale 24-hour dependency list is used as is until it expires. The GUI check covered one Claude Desktop install on Windows (Microsoft Store build); Cursor and VS Code are untested.
+
+## D-049: Better tool wording did not make Claude Desktop use the tool for a vague question; the docs now say what works
+**What happened.** After D-048 changed the tool description, server instructions and bundle manifest to say when to call the tool, 0.2.3 was tried in Claude Desktop with the bare question "What should I work on today?". It again answered with general advice ("Deciding whether to check connected tools first", then no call). The same chat with "use issuewatcher" added called the tool and gave a good answer (106 issues, the node-postgres and pymupdf risks, dev-only vulnerabilities flagged as low urgency). Whether that Desktop install was the 0.2.3 bundle or the older one was not verified.
+
+**Decision.** Do not rely on wording alone: an app's model decides per question whether a connected tool is needed, and a bare "what should I work on" is genuinely ambiguous. Every suggested question in the README, setup guide, demo script, bundle description and `--check` output now says "What GitHub issues should I work on today?", and the setup guide has a short tip: add "use IssueWatcher" or pick it from the chat box's tools or prompts menu. The description changes stay (they cost nothing and may help other models).
+
+**Not yet measured.** Whether "What GitHub issues should I work on today?" alone (no "use IssueWatcher") triggers the tool in Claude Desktop. Claude Code called the tool for the bare question; Claude Desktop did not. Cursor and VS Code are untested.
+
+**Why this matters for launch.** The demo and the posts must show a question that works the first time. A new user who types the vague question, gets life advice and never sees a ranked list will conclude the tool is broken.

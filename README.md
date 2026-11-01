@@ -5,7 +5,7 @@
 Watches the GitHub repositories you have starred, detects newly opened issues, and emails you a digest with an AI-generated summary and a suggested fix for each one.
 
 ## Use it from your AI assistant (MCP)
-Ask Claude, Cursor or VS Code **"What should I work on today?"** and get the new GitHub issues worth your time, ranked, with the reason for each. It works through [MCP](https://modelcontextprotocol.io), is read-only, and needs only a GitHub token (no AI key).
+Ask Claude, Cursor or VS Code **"What GitHub issues should I work on today?"** and get the new GitHub issues worth your time, ranked, with the reason for each. It works through [MCP](https://modelcontextprotocol.io), is read-only, and needs only a GitHub token (no AI key).
 
 ```bash
 claude mcp add issuewatcher -e GITHUB_TOKEN=github_pat_xxxxxxxx -- npx -y issuewatcher-mcp

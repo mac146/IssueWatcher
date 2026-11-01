@@ -16,7 +16,7 @@ A shot list for the walkthrough video / GIF. Target: a **45-second main demo** f
 | Time | On screen | Say / caption |
 | --- | --- | --- |
 | 0:00 | The AI app, empty chat | "GitHub notifications are all-or-nothing. I wanted: *what should I actually work on today?*" |
-| 0:05 | Type: *What should I work on today?* | (caption) "Asking my AI assistant" |
+| 0:05 | Type: *What GitHub issues should I work on today?* | (caption) "Asking my AI assistant" |
 | 0:08 | The ranked list appears: top 5, each with a score and a "why" line | "It ranks new issues in repos I starred and libraries I depend on, and tells me why." |
 | 0:20 | Point at one reason line: `unassigned; opened 3h ago; good first issue` | "Unassigned, fresh, good first issue." |
 | 0:24 | Type: *Why is #1 so high?* The breakdown appears (+30 starred, +20 title says crash...) | "Every point is explained. No black box." |
@@ -57,7 +57,7 @@ Safety in one sentence: "Everything is read-only; it can't change anything on Gi
 
 ## Prompts that demo well
 
-- *What should I work on today?*
+- *What GitHub issues should I work on today?*
 - *Show me good first issues from the last 24 hours.*
 - *What broke in my dependencies this week?*
 - *Why did you rank the first one so high?*

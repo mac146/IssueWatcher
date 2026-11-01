@@ -1,6 +1,6 @@
 # IssueWatcher for your AI assistant
 
-**Ask your AI assistant "What should I work on today?" and get back the GitHub issues that are actually worth your time, with the reason for each.**
+**Ask your AI assistant "What GitHub issues should I work on today?" and get back the GitHub issues that are actually worth your time, with the reason for each.**
 
 IssueWatcher is an [MCP](https://modelcontextprotocol.io) server. It watches the repositories you starred and the open-source libraries your own projects depend on, ranks their newest issues, and explains every score. It works inside Claude, Cursor, VS Code and other apps that support MCP.
 
@@ -133,19 +133,21 @@ You should see:
   [ok]   API budget: 4994 of 5000 requests left (resets ...).
   [ok]   Watching 51 repos: 16 starred, 35 from libraries your projects use (7.2s).
 
-All good. Add this server to your AI app, then ask: "What should I work on today?"
+All good. Add this server to your AI app, then ask: "What GitHub issues should I work on today?"
 ```
 
 ### 4. Ask
 
 Restart your AI app, then try:
 
-- *"What should I work on today?"*
+- *"What GitHub issues should I work on today?"*
 - *"Show me good first issues from the last 24 hours."*
 - *"What broke in my dependencies this week?"*
 - *"Why did you rank the first one so high?"*
 - *"Only show issues in nodejs/node and pydantic/pydantic."*
 - *"What repos are you watching for me?"*
+
+**If your AI answers with general advice instead of using IssueWatcher**, nudge it: add "use IssueWatcher" to the question (*"What GitHub issues should I work on today? Use IssueWatcher."*), or pick **IssueWatcher** from the tools or prompts menu of the chat box. Some apps decide on their own whether a question needs a connected tool, and a vague one like "what should I work on today?" can sound like a request for life advice. Mentioning GitHub or issues usually removes the doubt.
 
 IssueWatcher starts loading your repositories as soon as your AI app starts it, so by the time you type your first question the answer is usually instant. If you ask within the first few seconds it may take 10 to 20 seconds (longer on a slow connection); follow-up questions are instant for the next thirty minutes. It looks at the 20 newest issues per repository in the time window.
 

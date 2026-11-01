@@ -4,7 +4,7 @@
   "display_name": "IssueWatcher",
   "version": "0.0.0",
   "description": "Ranks new GitHub issues for you: what to pick up, and what may break your projects.",
-  "long_description": "IssueWatcher watches the repositories you starred and the open-source libraries your own projects depend on, and ranks their new issues with plain-language reasons. Ask 'What should I work on today?' for good first issues that are unassigned and fresh, or 'What broke in my dependencies this week?' for problems in libraries you use. Every score can be explained signal by signal. All tools are read-only: IssueWatcher never comments on, assigns or changes anything on GitHub. It runs on your computer and talks only to GitHub (and the npm and PyPI registries to find where your dependencies live).",
+  "long_description": "IssueWatcher watches the repositories you starred and the open-source libraries your own projects depend on, and ranks their new issues with plain-language reasons. Ask 'What GitHub issues should I work on today?' for good first issues that are unassigned and fresh, or 'What broke in my dependencies this week?' for problems in libraries you use. Every score can be explained signal by signal. All tools are read-only: IssueWatcher never comments on, assigns or changes anything on GitHub. It runs on your computer and talks only to GitHub (and the npm and PyPI registries to find where your dependencies live).",
   "author": {
     "name": "Mayank Kumar Singh",
     "url": "https://github.com/mac146"
