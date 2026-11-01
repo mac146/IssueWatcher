@@ -48,7 +48,7 @@ jobs:
       # private to this repository. If it is ever evicted the next run re-seeds silently:
       # nothing is re-sent, but issues opened during the gap are not reported.
       - name: Restore state
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: mcp-server/data
           key: issuewatcher-state-${{ github.run_id }}
@@ -111,7 +111,7 @@ jobs:
       # is delivered, so whatever is on disk is consistent. Skipped for dry runs.
       - name: Save state
         if: always() && inputs.dry_run != true
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: mcp-server/data
           key: issuewatcher-state-${{ github.run_id }}
