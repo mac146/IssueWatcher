@@ -44,6 +44,9 @@ const LABEL_NOISE = /\b(question|support|docs?|documentation|stale|discussion)\b
 const LABEL_NOISE_CONTRIBUTOR = /\b(question|support|stale|discussion)\b/i;
 const LABEL_EASY = /(good[ -]first[ -]issue|beginner|starter|easy|first[ -]timers?)/i;
 const LABEL_HELP = /(help[ -]wanted|hacktoberfest|contributions?[ -]welcome)/i;
+/** A request for new behaviour ("[Feature]: ...", "Feature Request: ..."), as opposed to a report of something broken. */
+const PROPOSAL_TITLE = /^\s*\[?\s*(?:feature|proposal|rfc|enhancement)\b[^\]:]*\]?\s*[:-]|\bfeature request\b/i;
+const DAY_H = 24;
 const REPRO = /(steps to reproduce|expected (?:behaviou?r|result)|actual (?:behaviou?r|result)|traceback|stack ?trace|minimal reproduc|reproduction)/i;
 const HOUR_MS = 3_600_000;
 const TEST_WORK = /\b(tests?|testing|suite)\b/i;
@@ -276,9 +279,21 @@ export function scoreIssueDetailed(issue: Issue, target: WatchTarget, opts: Scor
       add(10, "unassigned", "unassigned");
     }
 
+    // Newer is better to pick up; an issue nobody has answered or taken for two weeks is probably not wanted (D-051).
     const ageH = (now - Date.parse(issue.createdAt)) / HOUR_MS;
-    if (Number.isFinite(ageH) && ageH >= 0 && ageH <= 48) {
-      add(10, "fresh", ageH < 1 ? "opened just now" : `opened ${Math.floor(ageH)}h ago`);
+    if (Number.isFinite(ageH) && ageH >= 0) {
+      if (ageH <= 48) {
+        add(10, "fresh", ageH < 1 ? "opened just now" : `opened ${Math.floor(ageH)}h ago`);
+      } else if (ageH <= 7 * DAY_H) {
+        add(5, "recent", "opened this week");
+      } else if (ageH > 14 * DAY_H && issue.comments === 0 && issue.assignees === 0) {
+        add(-10, "stale", `open ${Math.floor(ageH / DAY_H)} days with no replies`);
+      }
+    }
+
+    // A proposal nobody has answered yet needs a maintainer's yes before it is worth starting.
+    if (PROPOSAL_TITLE.test(issue.title) && issue.comments === 0 && !LABEL_EASY.test(labels) && !LABEL_HELP.test(labels)) {
+      add(-10, "unanswered-proposal", "feature request nobody has answered yet");
     }
 
     // Work that is already taken is not something to pick up.

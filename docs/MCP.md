@@ -166,7 +166,7 @@ There is also a prompt, `issue_radar`, that some apps show as a shortcut.
 Every issue gets a score from 0 to 100 from transparent rules, each with a reason you can read:
 
 - **Why it is on your radar:** a repo you starred, or a library one of your projects depends on (runtime counts more than dev tools).
-- **Could you pick it up?** `good first issue` or `help wanted` labels, unassigned, opened recently, few comments, reproduction steps. Issues already assigned, claimed by a team, or where the reporter says they are opening a PR are scored down.
+- **Could you pick it up?** `good first issue` or `help wanted` labels, unassigned, opened recently, few comments, reproduction steps. Issues already assigned, claimed by a team, or where the reporter says they are opening a PR are scored down. Newer issues rank higher, and an issue with no reply and no taker after two weeks, or a feature request nobody has answered, is scored down.
 - **Could it break you?** the issue mentions a version in your range, or words like crash, regression, CVE.
 - **Noise is scored down:** bots, questions, duplicates, vague or throwaway titles.
 

@@ -56,6 +56,7 @@ Status values: **Accepted**, **Superseded by D-xxx**, **Proposed** (needs the ow
 | D-048 | Smaller pages, a cap on registry time and a 30 s budget after the first Claude Desktop run | Accepted |
 | D-049 | Better wording did not trigger the tool for a vague question; docs now suggest a question that names GitHub issues | Accepted |
 | D-050 | First quality check with a decision model as the judge: AUC 0.82 in the default mode; contributor mode over-ranks starred repos | Accepted, follow-up open |
+| D-051 | Newer issues rank higher for contributors; stale issues and unanswered feature requests are scored down | Accepted |
 
 ---
 
@@ -586,3 +587,16 @@ Speed and completeness checks measure the network first and warn (not fail) when
 **What is wrong, found by reading the rankings.** In contributor mode the top 12 are almost all starred-repo issues (feature requests, a UI nit, a course-assignment repo) that the judge called noise. The starred-repo bonus (+30) outweighs everything else. This may be partly the judge's question (it asked "worth their time", which favours stack-affecting issues) and partly a real weakness. It has NOT been changed on a model's say-so: contributor mode was a deliberate request (earlier decisions on contributor mode) and needs a human to say whether those picks are things they would take on.
 
 **Limits.** One developer's watch list; one judge; 99 issues; the judge was told the stack, which is also what the scorer uses, so agreement on dependency issues is partly by construction; labels were not checked by a person. The next evidence should be 3 to 5 other developers rating the top 10 of their own radar.
+
+## D-051: Newer issues rank higher for contributors; stale and unanswered-proposal issues are scored down
+**Why.** The model judge's contributor-mode result (D-050) looked bad, so the three starred-repo issues it ranked highest were shown to the developer. Their verdict: they would take one (idurar #1496, a small scroll-to-top bug), not the other two (pathway #232, a Kafka engine crash; composio #4949, a feature request that also needs backend work and a maintainer's yes). Their reasoning for ranking older issues lower: an old issue with no comments usually means the community does not want it. That holds for "could I pick this up", not for "does this affect my dependencies" (a months-old bug in a library you use is still a bug for you), so the change is confined to the contributor view.
+
+**A correction found on the way.** pathway #232 (5 months old) and idurar #1496 (2 months old) are older than anything the tool can return (the look-back window is at most 30 days, 7 by default), so part of the "contributor mode looks wrong" evidence was an artifact of the test sample, which was drawn without an age limit.
+
+**Changes (contributor view only).** Opened within 48 h: +10 (as before). Opened within the week: +5 (new). Older than 14 days with no reply and no assignee: -10 (`stale`, new). A "[Feature]..." or "Feature Request:" title with no reply and no help-wanted or good-first-issue label: -10 (`unanswered-proposal`, new). Consumer mode ignores all of it. Tests cover the boundaries and the cases that must not trigger ("feature" inside a sentence, a reply from a maintainer, a help-wanted label).
+
+**Result on the same 100 issues** (judge labels, old scorer vs new). composio #4949: rank 7 -> 31 (score 48 -> 28). idurar #1496: rank 5 -> 4, score unchanged at 50. On the issues young enough for the tool to show (under 30 days, 46 issues): default mode AUC 0.855 -> 0.864, contributor mode 0.702 -> 0.725. On all 100 (mostly irrelevant, old issues): 0.821 -> 0.809. pathway #232 is unchanged at rank 1 (it has a comment, so it is not "stale"), but it could not appear in the real tool.
+
+**A mistake worth recording.** A second judge run with a contributor-framed question (to give contributor mode a fair test) was started and interrupted, and it later finished and overwrote the first judge's output files, because the script's output names had only been changed in a comment. Noticed because the count of "useful" labels jumped from 40 to 59. The files were separated, the original judge re-run (40 useful this time, not 42, so the judge is not perfectly repeatable on borderline issues; the default-mode AUC is 0.821 against 0.82 reported in D-050), and both sets are kept: `labels.jev.csv` (general) and `labels.jev-contrib.csv` (contributor-framed). The contributor-framed judge calls 59 of 100 useful, gives weak AUCs everywhere (0.63 to 0.70) and cannot settle contributor mode either way.
+
+**Limits.** n = 46 for the realistic subset; one developer's taste; judge labels. The staleness thresholds (14 days, 48 h and 7 days) are reasonable guesses, not tuned values.

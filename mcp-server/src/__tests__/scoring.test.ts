@@ -131,9 +131,9 @@ test("contributor mode: help wanted counts, docs work is not penalised, question
 });
 
 test("contributor mode: reproduction details help, a crowded thread hurts", () => {
-  const plain = scoreIssue(issue("a/b", 1), starred("a/b"), contrib).score;
-  const repro = scoreIssue(issue("a/b", 1, { body: "Steps to reproduce:\n1. run it\nExpected: ok\nActual: crash" }), starred("a/b"), contrib).score;
-  const crowded = scoreIssue(issue("a/b", 1, { comments: 14 }), starred("a/b"), contrib).score;
+  const plain = scoreIssue(issue("a/b", 1, { createdAt: hoursAgo(72) }), starred("a/b"), contrib).score;
+  const repro = scoreIssue(issue("a/b", 1, { createdAt: hoursAgo(72), body: "Steps to reproduce:\n1. run it\nExpected: ok\nActual: crash" }), starred("a/b"), contrib).score;
+  const crowded = scoreIssue(issue("a/b", 1, { createdAt: hoursAgo(72), comments: 14 }), starred("a/b"), contrib).score;
   assert.ok(repro > plain && crowded < plain);
 });
 
@@ -319,4 +319,40 @@ test("a 1.x issue that compares against your 0.3 release in a table is not a ver
   const r = scoreIssue(issue("a/b", 1, { title: "Relations empty on SQL Server (1.x regression)", body }), depTarget(dep("^0.3.28")));
   assert.ok(!r.reasons.some((x) => x.startsWith("mentions")), r.reasons.join("; "));
   assert.ok(r.reasons.some((x) => x.startsWith("title is about")));
+});
+
+test("contributor view: newer is better, and an unanswered, untaken issue goes stale after two weeks (D-051)", () => {
+  const score = (hours: number, extra: object = {}) =>
+    scoreIssue(issue("a/b", 1, { createdAt: hoursAgo(hours), comments: 1, ...extra }), starred("a/b"), contrib);
+  const day1 = score(20), week = score(72), older = score(10 * 24);
+  assert.ok(day1.score > week.score && week.score > older.score);
+  assert.ok(week.reasons.includes("opened this week"));
+
+  const stale = scoreIssue(issue("a/b", 1, { createdAt: hoursAgo(20 * 24), comments: 0 }), starred("a/b"), contrib);
+  assert.ok(stale.reasons.some((r) => /open 20 days with no replies/.test(r)), stale.reasons.join("; "));
+  // One reply, an assignee, or fewer than 14 days: not stale.
+  for (const extra of [{ comments: 1 }, { assignees: 1 }]) {
+    const r = scoreIssue(issue("a/b", 1, { createdAt: hoursAgo(20 * 24), comments: 0, ...extra }), starred("a/b"), contrib);
+    assert.ok(!r.reasons.some((x) => /no replies/.test(x)), JSON.stringify(extra));
+  }
+  assert.ok(!scoreIssue(issue("a/b", 1, { createdAt: hoursAgo(10 * 24), comments: 0 }), starred("a/b"), contrib).reasons.some((x) => /no replies/.test(x)));
+});
+
+test("contributor view: a feature request nobody has answered is scored down; bugs, answered or welcomed ones are not", () => {
+  const base = { createdAt: hoursAgo(72), comments: 0 };
+  const proposed = (title: string, extra: object = {}) =>
+    scoreIssue(issue("a/b", 1, { ...base, title, ...extra }), starred("a/b"), contrib).reasons.some((r) => /feature request nobody/.test(r));
+  assert.ok(proposed("[Feature]: CLI: create and rename an organization"));
+  assert.ok(proposed("Feature Request: SuperCompress context compression"));
+  assert.ok(proposed("[Feature / Test]: Synthetic regression suite"));
+  assert.ok(!proposed("Crash when saving a large file"), "a bug report");
+  assert.ok(!proposed("Support the feature flag in config files"), "'feature' inside a sentence");
+  assert.ok(!proposed("[Feature]: CLI: create and rename an organization", { comments: 1 }), "a maintainer has answered");
+  assert.ok(!proposed("[Feature]: CLI: create and rename an organization", { labels: ["help wanted"] }), "welcomed");
+});
+
+test("the freshness gradient, staleness and proposals are contributor-only: consumer mode ignores them", () => {
+  const i = issue("a/b", 1, { title: "[Feature]: add orgs", createdAt: hoursAgo(30 * 24), comments: 0 });
+  const r = scoreIssue(i, depTarget(dep("^1.0.0")), { mode: "consumer", now: NOW });
+  assert.ok(!r.reasons.some((x) => /no replies|nobody has answered|opened this week/.test(x)), r.reasons.join("; "));
 });
