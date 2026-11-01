@@ -28,7 +28,7 @@
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "@modelcontextprotocol/server": "^2.4.0",
-    "axios": "^1.13.2",
+    "axios": "^1.20.0",
     "dotenv": "^17.2.3",
     "ioredis": "^6.0.0",
     "nodemailer": "^7.0.10",
