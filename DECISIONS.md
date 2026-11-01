@@ -53,6 +53,7 @@ Status values: **Accepted**, **Superseded by D-xxx**, **Proposed** (needs the ow
 | D-045 | Full-size pages and a 30-minute cache after partial answers in a real session | Accepted |
 | D-046 | Verify a release locally end to end before publishing (npm run verify:release) | Accepted |
 | D-047 | A hung registry must not stall startup or poison the 24-hour cache | Accepted |
+| D-048 | Smaller pages, a cap on registry time and a 30 s budget after the first Claude Desktop run | Accepted |
 
 ---
 
@@ -544,3 +545,15 @@ Speed and completeness checks measure the network first and warn (not fail) when
 **Checked.** Tests for both. A simulated PyPI that never answers: the setup check completes in under 30 s, drops only the 8 Python packages, and writes a list that expires in 15 minutes instead of 1,440.
 
 **Limits.** The packages that failed are absent for up to 15 minutes, not retried individually. A permanently unreachable registry (a firewall) means a rebuild attempt every 15 minutes at 10 s each. The release check's network probe only measures GitHub; the registries are covered by the retry rule above, not by the probe.
+
+## D-048: Smaller pages, a cap on registry time, and a 30-second budget (found by the first Claude Desktop run)
+**What happened.** The first real Claude Desktop run worked end to end (the one-click bundle, the token field, the tool call), after two findings that were about discoverability, not the server: a plain "What should I work on today?" was answered as general life advice because the tool description never said when to call it (now it does, in the tool description, the server instructions and the bundle manifest), and a bad token produced a 401 message that talked about an environment variable that a one-click user never sees (now it also names the extension's token field). Then the first ranked answer came back partial: the log showed the call lasting exactly the 20.0 s budget, 16 starred repos scanned and the 35 dependency repos not reached.
+
+**Measured, not guessed.** One full scan of this account downloads **15.7 MB** with 100-item pages, 10.3 s on a good connection even with 8 requests at once, so on a slower line the transfer alone exceeds 20 s. With 30-item pages it is **6.2 MB, 7.4 s**. Separately, PyPI took 14 to 15 s per lookup that day (npm 4 s), and discovery, which the scan waits for, was paying that before a single issue was fetched.
+
+**Changes.**
+1. **Small first page.** `getIssuesSince` asks for 30 items. If those 30 already hold `max` (20) issues inside the window, or reach its edge, or there is no next page, that is the answer. Otherwise (a repo whose open items are mostly pull requests, or a wide window) it reads again in full 100-item pages, which gives exactly the old result. Verified on the real account: **all 51 repos return identical issue lists** to the old method. A first version that simply kept small pages differed on one repo (n8n, 17 issues instead of 20) and was rejected for that reason.
+2. **Registry lookups share one 8 s budget.** Packages not resolved in time are left out, the list is marked incomplete and rebuilt in 15 minutes (D-047), and the scan starts.
+3. **Tool-call budget 20 s -> 30 s.** Most clients allow 60 s per call; the answer is still partial with an honest notice if it runs out.
+
+**Limits.** A first-ever question on a poor connection can still take 20 to 30 s, because discovery and the issue fetch run one after the other; overlapping them (scan the starred repos while dependencies resolve) is the next step if first-run speed matters in real use. A stale 24-hour dependency list is used as is until it expires. The GUI check covered one Claude Desktop install on Windows (Microsoft Store build); Cursor and VS Code are untested.

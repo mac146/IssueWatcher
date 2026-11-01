@@ -33,7 +33,7 @@
   "tools": [
     {
       "name": "get_ranked_issues",
-      "description": "Ranks recently opened issues across your starred repos and your dependencies, with a score and reasons."
+      "description": "Answers 'what should I work on today?' and 'what broke in my dependencies?': ranks recently opened GitHub issues across your starred repos and your dependencies, with a score and reasons."
     },
     {
       "name": "explain_issue",

@@ -104,3 +104,38 @@ test("a connection cut while the body was arriving is retried, not reported as a
   assert.equal(res.highWater, 5);
   assert.equal(n, 2);
 });
+
+test("getIssuesSince starts with one small page and only reads full pages when it needs more", async () => {
+  const day = (n: number) => new Date(Date.UTC(2026, 9, 31) - n * 86_400_000).toISOString();
+  // Every `issueEvery`-th item is an issue; the rest are pull requests.
+  const page = (count: number, issueEvery: number) =>
+    Array.from({ length: count }, (_, i) => raw(1000 - i, { created_at: day(0), pull_request: i % issueEvery ? {} : undefined }));
+  const since = new Date(Date.UTC(2026, 9, 1));
+  const run = async (pages: Array<{ data: unknown[]; next: boolean }>) => {
+    const seen: Array<number | undefined> = [];
+    let call = 0;
+    const client = {
+      get: async (_url: string, config?: { params?: { per_page?: number } }) => {
+        seen.push(config?.params?.per_page);
+        const p = pages[call++]!;
+        return { data: p.data, headers: p.next ? { link: '<https://api.github.com/p>; rel="next"' } : {} };
+      },
+    } as unknown as AxiosInstance;
+    return { res: await new GitHubAPI("t", client).getIssuesSince("o", "r", since, 20), seen };
+  };
+
+  // A quiet repo: the small page already holds 20 issues, so that is the only request.
+  const quiet = await run([{ data: page(30, 1), next: true }]);
+  assert.deepEqual(quiet.seen, [30]);
+  assert.equal(quiet.res.length, 20);
+
+  // A pull-request-heavy repo: 30 items hold 10 issues, so it is read again in full pages.
+  const heavy = await run([{ data: page(30, 3), next: true }, { data: page(100, 3), next: false }]);
+  assert.deepEqual(heavy.seen, [30, 100]);
+  assert.equal(heavy.res.length, 20);
+
+  // No further pages: whatever the small page held is the answer.
+  const small = await run([{ data: page(5, 1), next: false }]);
+  assert.deepEqual(small.seen, [30]);
+  assert.equal(small.res.length, 5);
+});

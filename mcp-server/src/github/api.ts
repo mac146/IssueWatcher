@@ -3,6 +3,7 @@ import { logger } from "../logger.js";
 import type { Issue, IssueSource, NewIssues, Repo } from "../poller/types.js";
 
 const PER_PAGE = 100;
+const SINCE_PAGE = 30;
 const MAX_PAGES = 50; // hard stop: 5,000 items per listing
 const MAX_RETRIES = 3;
 const MAX_RATE_LIMIT_WAIT_MS = 120_000;
@@ -164,25 +165,25 @@ export class GitHubAPI implements IssueSource {
 
   /**
    * Open issues created at or after `since`, newest first, at most `max`. Pull requests are
-   * excluded. Paging stops at the first page that reaches an older issue, so a quiet repo
-   * costs one request.
+   * excluded. The first request is a small page (30): bodies dominate the download, most repos
+   * answer from it, and a scan of 50 repos is bandwidth-bound on a slow connection (15.7 MB at 100
+   * per page, 6.2 MB at 30; D-048). A repo that needs more, because the page is full of pull
+   * requests or the window is wide, is read again in full pages, which gives exactly the result
+   * the full-page method always gave.
    */
   async getIssuesSince(owner: string, repo: string, since: Date, max: number): Promise<Issue[]> {
     const sinceMs = since.getTime();
-    // Full pages: the listing mixes in pull requests, which are dropped below, so a small page
-    // on a busy repo is mostly PRs and needs several round trips to reach the window's edge.
-    const raw = await this.paginate<RawIssue>(
-      `/repos/${owner}/${repo}/issues`,
-      { state: "open", sort: "created", direction: "desc", per_page: PER_PAGE },
-      {
-        maxPages: 5,
-        stopAfter: (page) => page.some((i) => Date.parse(i.created_at ?? "") < sinceMs),
-      },
-    );
-    return raw
-      .filter((i) => !i.pull_request && Date.parse(i.created_at ?? "") >= sinceMs)
-      .slice(0, max)
-      .map((i) => toIssue(i, `${owner}/${repo}`));
+    const path = `/repos/${owner}/${repo}/issues`;
+    const query = { state: "open", sort: "created", direction: "desc" };
+    const inWindow = (i: RawIssue) => !i.pull_request && Date.parse(i.created_at ?? "") >= sinceMs;
+    const reachedEdge = (page: RawIssue[]) => page.some((i) => Date.parse(i.created_at ?? "") < sinceMs);
+    const finish = (items: RawIssue[]) => items.filter(inWindow).slice(0, max).map((i) => toIssue(i, `${owner}/${repo}`));
+
+    const first = await this.get<RawIssue[]>(path, { ...query, per_page: SINCE_PAGE });
+    if (first.data.filter(inWindow).length >= max || reachedEdge(first.data) || !nextLink(first)) return finish(first.data);
+
+    const raw = await this.paginate<RawIssue>(path, { ...query, per_page: PER_PAGE }, { maxPages: 5, stopAfter: reachedEdge });
+    return finish(raw);
   }
 
   /** Remaining API calls and when the window resets; used by the setup check. */

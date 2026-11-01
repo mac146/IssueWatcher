@@ -200,3 +200,19 @@ test("a registry timeout is not retried, and a map built during an outage expire
   await cache.get();
   assert.equal(runs, 2);
 });
+
+test("registry lookups share one time budget, so a hung registry cannot stall discovery", async () => {
+  const { discoverDependencies, incompleteMaps } = await import("../deps/discovery.js");
+  const source: ManifestSource = {
+    listOwnRepos: async () => [{ owner: "me", name: "app", pushedAt: new Date().toISOString() }],
+    getFile: async (_o, _n, file) => (file === "package.json" ? JSON.stringify({ dependencies: { fast: "^1.0.0", hung: "^1.0.0", late: "^1.0.0" } }) : null),
+  };
+  const registry: Registry = {
+    resolve: (_eco, pkg) => (pkg === "fast" ? Promise.resolve("a/fast") : new Promise(() => undefined)), // never answers
+  };
+  const t = Date.now();
+  const map = await discoverDependencies(source, registry, { repos: [], maxRepos: 5, maxDependencies: 10, activeWithinDays: 90, registryBudgetMs: 300 });
+  assert.ok(Date.now() - t < 3000, `took ${Date.now() - t} ms`);
+  assert.deepEqual(Object.keys(map), ["a/fast"]);
+  assert.ok(incompleteMaps.has(map));
+});

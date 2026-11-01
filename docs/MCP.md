@@ -147,7 +147,7 @@ Restart your AI app, then try:
 - *"Only show issues in nodejs/node and pydantic/pydantic."*
 - *"What repos are you watching for me?"*
 
-IssueWatcher starts loading your repositories as soon as your AI app starts it, so by the time you type your first question the answer is usually instant. If you ask within the first few seconds it may take up to about ten (longer on a slow connection); follow-up questions are instant for the next thirty minutes. It looks at the 20 newest issues per repository in the time window.
+IssueWatcher starts loading your repositories as soon as your AI app starts it, so by the time you type your first question the answer is usually instant. If you ask within the first few seconds it may take 10 to 20 seconds (longer on a slow connection); follow-up questions are instant for the next thirty minutes. It looks at the 20 newest issues per repository in the time window.
 
 ## What the assistant can do (the tools)
 
@@ -211,7 +211,7 @@ LLM API keys (Gemini, OpenAI, Claude, Groq, ...) are only used by the *separate*
 | "GitHub rejected the token (401)" | The token expired or was copied wrongly. Create a new one. |
 | "No repositories to watch" | You have not starred any repositories yet. Star a few and try again. |
 | No dependencies found | Dependency matching reads `package.json` / `requirements.txt` in your recently pushed repos. For private repos the token needs **Contents: Read-only**. Or list projects with `DEPENDENCY_REPOS`. |
-| First answer is slow, or says "still loading" | The first load of ~50 repos takes up to ten seconds, longer on a slow connection. Ask again in a few seconds: the work continues in the background. If a scan runs out of its 20-second limit the answer says so and lists how many repos it did not reach. |
+| First answer is slow, or says "still loading" | The first load of ~50 repos takes 10 to 20 seconds, longer on a slow connection or when npm or PyPI are slow. Ask again in a few seconds: the work continues in the background. If a scan runs out of its 30-second limit the answer says so and lists how many repos it did not reach. |
 | Results look wrong | Ask "explain the first one" and read the signals; then [tell us](https://github.com/mac146/IssueWatcher/issues). That feedback is how the ranking improves. |
 
 ## Run it another way

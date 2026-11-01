@@ -17,6 +17,11 @@ export type DiscoveryOptions = {
   maxDependencies: number;
   /** Repos untouched for longer than this are skipped during auto-discovery. */
   activeWithinDays: number;
+  /**
+   * Time allowed for all registry lookups together (default 8 s). A slow registry must not hold up the
+   * first answer: packages not resolved in time are left out and the list is rebuilt soon (D-047, D-048).
+   */
+  registryBudgetMs?: number;
 };
 
 /** "owner/name" of a watched repo to the dependencies of the user's that live there. */
@@ -107,13 +112,23 @@ export async function discoverDependencies(
     .slice(0, opts.maxDependencies);
 
   let lookupFailures = 0;
+  const lookupsEnd = Date.now() + (opts.registryBudgetMs ?? 8_000);
   const resolved = await inPool(ranked, 12, async (dep) => {
+    let timer: NodeJS.Timeout | undefined;
     try {
-      return await registry.resolve(dep.ecosystem, dep.pkg);
+      const remaining = Math.max(0, lookupsEnd - Date.now());
+      const budget = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("registry lookups ran out of time")), remaining);
+      });
+      const lookup = registry.resolve(dep.ecosystem, dep.pkg);
+      lookup.catch(() => undefined); // the race may already be lost; a late failure is not news
+      return await Promise.race([lookup, budget]);
     } catch (err) {
       lookupFailures++;
       logger.warn(`Registry lookup failed for ${dep.ecosystem}:${dep.pkg}`, err);
       return null;
+    } finally {
+      clearTimeout(timer);
     }
   });
 

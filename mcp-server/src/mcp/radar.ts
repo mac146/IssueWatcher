@@ -130,7 +130,8 @@ export function classifyError(err: unknown): RadarError {
   if (axios.isAxiosError(err) && err.response && err.response.status >= 400) {
     const { status, headers } = err.response;
     if (status === 401) {
-      return new RadarError("GitHub rejected the token (401). Create a new token and update GITHUB_TOKEN.", "auth");
+      return new RadarError("GitHub rejected the token (401). It may be expired, revoked, or copied with an extra space or quote. " +
+          "Create a new token and enter it again: in the extension's GitHub token setting (Claude Desktop), or as GITHUB_TOKEN.", "auth");
     }
     if (status === 429 || (status === 403 && headers["x-ratelimit-remaining"] === "0")) {
       return new RadarError("GitHub rate limit reached. Try again in a few minutes.", "rate-limit");
@@ -170,7 +171,7 @@ export class Radar {
   constructor(private readonly opts: RadarOptions) {
     this.now = opts.now ?? Date.now;
     this.concurrency = opts.concurrency ?? 8;
-    this.budgetMs = opts.budgetMs ?? 20_000;
+    this.budgetMs = opts.budgetMs ?? 30_000;
     this.perRepoMax = opts.perRepoMax ?? 20;
     this.defaultMode = opts.defaultMode ?? "both";
     const ttl = opts.cacheTtlMs ?? 30 * 60_000;
