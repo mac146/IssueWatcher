@@ -8,7 +8,11 @@ A shot list for the walkthrough video / GIF. Target: a **45-second main demo** f
 - [ ] Use a clean terminal and a clean AI-app window. Large font (at least 18 pt) so it reads on a phone.
 - [ ] Run `npx -y issuewatcher-mcp --check` once beforehand so the dependency cache is warm and the first answer is quick (in the video, mention "the first run takes a few seconds").
 - [ ] Choose a good moment: weekday, so there are fresh issues. Try the prompts first and pick the ones with a convincing top result.
-- [ ] Close notifications and other tabs; hide any private repository names (the "watched repos" answer lists your projects).
+- [ ] Close notifications and other tabs; hide any private repository names (the "watched repos" answer lists your projects). **Skip the "What repos are you watching?" prompt in the video**, or blur the answer: it names your own projects and any course repos you starred.
+- [ ] Install the **latest** release first (`issuewatcher-0.2.4.mcpb` or newer), remove any older IssueWatcher extension, and fully quit and reopen Claude Desktop.
+- [ ] After enabling the extension, **wait about 30 seconds before you ask**: it loads your repos in the background, and a first question asked at once can take 20 to 30 seconds. Do one full dry run first so the cache is warm, then record. If the first answer is slow on camera, cut it in editing; do not speed up the real answer so it looks instant.
+- [ ] Use the exact question with "GitHub issues" in it. The vague "What should I work on today?" is sometimes answered as general life advice by Claude Desktop (D-049).
+- [ ] The question that triggers the tool may vary by app. Rehearse the three questions you will ask and keep the ones that call IssueWatcher the first time.
 - [ ] Record the screen at 1080p. Add captions: many people watch with the sound off.
 
 ## 45-second main demo
@@ -18,11 +22,12 @@ A shot list for the walkthrough video / GIF. Target: a **45-second main demo** f
 | 0:00 | The AI app, empty chat | "GitHub notifications are all-or-nothing. I wanted: *what should I actually work on today?*" |
 | 0:05 | Type: *What GitHub issues should I work on today?* | (caption) "Asking my AI assistant" |
 | 0:08 | The ranked list appears: top 5, each with a score and a "why" line | "It ranks new issues in repos I starred and libraries I depend on, and tells me why." |
-| 0:20 | Point at one reason line: `unassigned; opened 3h ago; good first issue` | "Unassigned, fresh, good first issue." |
-| 0:24 | Type: *Why is #1 so high?* The breakdown appears (+30 starred, +20 title says crash...) | "Every point is explained. No black box." |
-| 0:34 | Type: *What broke in my dependencies this week?* | "Or flip it: what may break my projects." |
-| 0:40 | Results show `you depend on pydantic (*)` | "It found my dependencies from my own repos." |
-| 0:43 | End card: repo URL, "free, read-only, no AI key needed" | "Free. Read-only. Link below." |
+| 0:20 | Point at one reason line, for example `you depend on pg (^8.16.3); title says "crashes"; unassigned; opened 16h ago` | "A crash in a library I use, fresh, nobody on it." |
+| 0:24 | Type: *Why did you rank the first one so high?* The breakdown appears (+40 you depend on pg, +20 title says "crashes", +10 unassigned...) | "Every point is explained. No black box." |
+| 0:32 | Point at the assistant's own caveat (for example "this only matters if your server uses GSSAPI auth") | "And my assistant tells me whether it really applies to me." |
+| 0:38 | Type: *What broke in my dependencies this week?* | "Or flip it: what may break my projects." |
+| 0:42 | Results show `you depend on pymupdf` or `you depend on pg` | "It found my dependencies from my own repos." |
+| 0:45 | End card: repo URL, "free, read-only, no AI key needed" | "Free. Read-only. Link below." |
 
 ## 3-minute full walkthrough
 
@@ -53,7 +58,7 @@ The same prompts as the main demo, a little slower. Add *"Show me only good firs
 Say clearly: "**No.** IssueWatcher never calls an AI model. Your assistant uses its own. API keys like Gemini or OpenAI are only for the optional *email digest* part of the project." (Show the README section if you want to show where keys go for the digest: `GOOGLE_API_KEY` in `.env`.)
 
 ### 7. Close (3:00)
-Safety in one sentence: "Everything is read-only; it can't change anything on GitHub." Show the repo link and ask for feedback: "Tell me what would make this useful for you."
+Safety in one sentence: "Everything is read-only; it can't change anything on GitHub." Say the honest limit in one sentence too: "The score ranks by signals like 'you depend on it' and 'title says crash'. It does not judge how bad a bug is for you, so your assistant helps you decide whether it applies." Show the repo link and ask for feedback: "Tell me what would make this useful for you."
 
 ## Prompts that demo well
 
