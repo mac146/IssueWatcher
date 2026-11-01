@@ -216,3 +216,21 @@ test("registry lookups share one time budget, so a hung registry cannot stall di
   assert.deepEqual(Object.keys(map), ["a/fast"]);
   assert.ok(incompleteMaps.has(map));
 });
+
+test("a hung PyPI cannot starve npm lookups: each registry has its own pool (D-053)", async () => {
+  const { discoverDependencies } = await import("../deps/discovery.js");
+  const npmDeps = Object.fromEntries(Array.from({ length: 24 }, (_, i) => [`n${i}`, "^1.0.0"]));
+  const lines = Array.from({ length: 8 }, (_, i) => `a${i}==1.0`).join("\n");
+  const source: ManifestSource = {
+    listOwnRepos: async () => [{ owner: "me", name: "app", pushedAt: new Date().toISOString() }],
+    getFile: async (_o, _n, file) =>
+      file === "package.json" ? JSON.stringify({ dependencies: npmDeps }) : file === "requirements.txt" ? lines : null,
+  };
+  const registry: Registry = {
+    resolve: (eco, pkg) =>
+      eco === "pypi" ? new Promise(() => undefined) : new Promise((r) => setTimeout(() => r(`o/${pkg}`), 300)),
+  };
+  const map = await discoverDependencies(source, registry, { repos: [], maxRepos: 5, maxDependencies: 100, activeWithinDays: 90, registryBudgetMs: 1500 });
+  // 24 npm packages at 300 ms with 10 slots take ~900 ms; with a shared pool of 12 and 8 slots held by PyPI they would not finish.
+  assert.equal(Object.keys(map).length, 24, `resolved ${Object.keys(map).length}`);
+});

@@ -8,3 +8,5 @@ data/
 /dist-mcp/
 /dist-mcpb/
 *.mcpb
+
+debug.log

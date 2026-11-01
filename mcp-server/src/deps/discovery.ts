@@ -113,16 +113,16 @@ export async function discoverDependencies(
 
   let lookupFailures = 0;
   const lookupsEnd = Date.now() + (opts.registryBudgetMs ?? 8_000);
-  const resolved = await inPool(ranked, 12, async (dep) => {
+  const lookup = async (dep: (typeof ranked)[number]): Promise<string | null> => {
     let timer: NodeJS.Timeout | undefined;
     try {
       const remaining = Math.max(0, lookupsEnd - Date.now());
       const budget = new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error("registry lookups ran out of time")), remaining);
       });
-      const lookup = registry.resolve(dep.ecosystem, dep.pkg);
-      lookup.catch(() => undefined); // the race may already be lost; a late failure is not news
-      return await Promise.race([lookup, budget]);
+      const pending = registry.resolve(dep.ecosystem, dep.pkg);
+      pending.catch(() => undefined); // the race may already be lost; a late failure is not news
+      return await Promise.race([pending, budget]);
     } catch (err) {
       lookupFailures++;
       logger.warn(`Registry lookup failed for ${dep.ecosystem}:${dep.pkg}`, err);
@@ -130,7 +130,23 @@ export async function discoverDependencies(
     } finally {
       clearTimeout(timer);
     }
+  };
+
+  // One pool per registry: a slow PyPI must not hold the slots that npm lookups need (D-053).
+  const resolved: Array<string | null> = new Array(ranked.length).fill(null);
+  const byEcosystem = new Map<string, Array<{ dep: (typeof ranked)[number]; index: number }>>();
+  ranked.forEach((dep, index) => {
+    const group = byEcosystem.get(dep.ecosystem) ?? [];
+    group.push({ dep, index });
+    byEcosystem.set(dep.ecosystem, group);
   });
+  await Promise.all(
+    [...byEcosystem.entries()].map(([ecosystem, group]) =>
+      inPool(group, ecosystem === "npm" ? 10 : 4, async ({ dep, index }) => {
+        resolved[index] = await lookup(dep);
+      }),
+    ),
+  );
 
   const map: DependencyMap = {};
   ranked.forEach((dep, i) => {
