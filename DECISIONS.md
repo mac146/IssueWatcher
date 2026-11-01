@@ -55,6 +55,7 @@ Status values: **Accepted**, **Superseded by D-xxx**, **Proposed** (needs the ow
 | D-047 | A hung registry must not stall startup or poison the 24-hour cache | Accepted |
 | D-048 | Smaller pages, a cap on registry time and a 30 s budget after the first Claude Desktop run | Accepted |
 | D-049 | Better wording did not trigger the tool for a vague question; docs now suggest a question that names GitHub issues | Accepted |
+| D-050 | First quality check with a decision model as the judge: AUC 0.82 in the default mode; contributor mode over-ranks starred repos | Accepted, follow-up open |
 
 ---
 
@@ -567,3 +568,21 @@ Speed and completeness checks measure the network first and warn (not fail) when
 **Measured afterwards.** "What GitHub issues should I work on today?" in a new Claude Desktop chat called the tool and produced a good ranked answer (51 repos checked, 106 issues). That is one trial by the author, not a measured rate. Claude Code called the tool even for the vague question; Claude Desktop did not. Cursor and VS Code are untested.
 
 **Why this matters for launch.** The demo and the posts must show a question that works the first time. A new user who types the vague question, gets life advice and never sees a ranked list will conclude the tool is broken.
+
+## D-050: First quality check, with a decision model as the judge (not human-verified)
+**Why a model, and what it is.** The plan (D-036) needed labelled data, and labelling 100 issues by hand was the slow step before launch. The Jev decision model (a classifier: it is given a question and labelled options and returns a probability for each) was used as an offline judge. It is not a person and not ground truth. The key stays in the git-ignored `.env` and is read only by a local script in `eval/`, never by the server.
+
+**Method.** For each of the 100 saved issues (the same sample as D-036, scores hidden), the judge got a short profile of the developer's stack (a NestJS/TypeORM/pg backend and a Python FastAPI/pydantic/PyMuPDF service, plus starred projects they like to contribute to), the issue's repo, title, labels, comment and assignee counts, age and the first 900 characters of its text, and chose "useful", "noise" or "unclear". It chose 42 useful, 58 noise, 0 unclear. The ranking was then scored with `npm run eval:report`, which got two small dev-only options: `ISSUEWATCHER_EVAL_LABELS` (score a second labels file, so `labels.csv` stays the human one) and `ISSUEWATCHER_EVAL_MODE` (score the same labels in another mode).
+
+**Results (99 labelled issues; one multi-line title did not parse).**
+| Mode | Top 10 useful | Newest-first | Random | AUC (95% range) |
+| --- | --- | --- | --- | --- |
+| both (default) | 80% | 60% | 42% | **0.82** (0.73-0.90) |
+| consumer | 80% | 60% | 42% | 0.88 (0.80-0.94) |
+| contributor | 20% | 60% | 42% | 0.69 |
+
+**What can honestly be claimed.** The ranking separates useful from noise much better than chance (AUC 0.82, and the range stays well above 0.5). The "top 10 beats newest-first" comparison is NOT established: its bootstrap range is -20 to +60 points on 99 issues. The top six in the default mode are real problems in libraries the developer depends on.
+
+**What is wrong, found by reading the rankings.** In contributor mode the top 12 are almost all starred-repo issues (feature requests, a UI nit, a course-assignment repo) that the judge called noise. The starred-repo bonus (+30) outweighs everything else. This may be partly the judge's question (it asked "worth their time", which favours stack-affecting issues) and partly a real weakness. It has NOT been changed on a model's say-so: contributor mode was a deliberate request (earlier decisions on contributor mode) and needs a human to say whether those picks are things they would take on.
+
+**Limits.** One developer's watch list; one judge; 99 issues; the judge was told the stack, which is also what the scorer uses, so agreement on dependency issues is partly by construction; labels were not checked by a person. The next evidence should be 3 to 5 other developers rating the top 10 of their own radar.

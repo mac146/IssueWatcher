@@ -9,7 +9,8 @@ import { createTargetProvider } from "../targets.js";
 import { buildReport, buildSample, formatReport, parseCsv, parseLabels, rescore, toCsv, type StoredItem } from "./eval.js";
 
 const DIR = path.resolve("eval");
-const CSV = path.join(DIR, "labels.csv");
+// ISSUEWATCHER_EVAL_LABELS lets a second labelling (for example a model judge) be scored without touching labels.csv.
+const CSV = process.env.ISSUEWATCHER_EVAL_LABELS ? path.resolve(process.env.ISSUEWATCHER_EVAL_LABELS) : path.join(DIR, "labels.csv");
 const SAMPLE = path.join(DIR, "sample.json");
 
 type StoredSample = { mode: ScoringMode; seed: number; items: StoredItem[] };
@@ -112,8 +113,14 @@ async function report(): Promise<void> {
     console.log(`Ignored ${unrecognised.length} label(s) that are not u/n:\n  ${unrecognised.slice(0, 5).join("\n  ")}\n`);
   }
   // Re-scored with the CURRENT scoring code, so weight changes can be judged on the same labels.
-  const scores = rescore(sample.items, { mode: sample.mode });
-  console.log(`Scoring mode: ${sample.mode} (issues re-scored with the current weights)\n`);
+  // ISSUEWATCHER_EVAL_MODE scores the same labels in another mode (the sample records the mode it was drawn in).
+  const override = process.env.ISSUEWATCHER_EVAL_MODE;
+  if (override && !["contributor", "consumer", "both"].includes(override)) {
+    throw new Error("ISSUEWATCHER_EVAL_MODE must be contributor, consumer or both");
+  }
+  const mode = (override ?? sample.mode) as ScoringMode;
+  const scores = rescore(sample.items, { mode });
+  console.log(`Scoring mode: ${mode} (issues re-scored with the current weights)\n`);
   console.log(formatReport(buildReport(scores, labels)));
 }
 
