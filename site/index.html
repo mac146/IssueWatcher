@@ -1,0 +1,656 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>IssueWatcher</title>
+<meta name="description" content="IssueWatcher is an MCP server that ranks new GitHub issues for your AI assistant, from the repos you starred and the libraries you depend on, and itemizes every score. Read-only. Needs only a GitHub token.">
+<meta name="theme-color" content="#E4EBE1" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0D1611" media="(prefers-color-scheme: dark)">
+<meta property="og:type" content="website">
+<meta property="og:title" content="IssueWatcher">
+<meta property="og:description" content="Ask your AI assistant what to work on. IssueWatcher ranks new GitHub issues and shows how every score adds up.">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="IssueWatcher">
+<meta name="twitter:description" content="Ask your AI assistant what to work on. IssueWatcher ranks new GitHub issues and shows how every score adds up.">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%3E%3Cstyle%3Erect%7Bfill%3A%2313231A%7D%40media%20(prefers-color-scheme%3Adark)%7Brect%7Bfill%3A%23E1EBDD%7D%7D%3C%2Fstyle%3E%3Crect%20x%3D%222%22%20y%3D%224%22%20width%3D%2220%22%20height%3D%223.2%22%2F%3E%3Crect%20x%3D%222%22%20y%3D%2210.4%22%20width%3D%2214%22%20height%3D%223.2%22%20opacity%3D%22.62%22%2F%3E%3Crect%20x%3D%222%22%20y%3D%2216.8%22%20width%3D%228%22%20height%3D%223.2%22%20opacity%3D%22.34%22%2F%3E%3C%2Fsvg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* page reset: the artifact viewer supplied this; a standalone page carries its own */
+:root { color-scheme: light; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+body { margin: 0; }
+img { max-width: 100%; }
+[hidden] { display: none !important; }
+</style>
+<style>
+/* Concept: a ledger. One ruled sheet in the hero adds a real score up line by line, with a running balance and a
+   double-ruled total, and deductions print in red ink. Everything else stays flat paper on a 5/7 column grid. */
+:root {
+  --paper: #E4EBE1;
+  --sheet: #F6F9F3;
+  --sel: #D6E3D2;
+  --ink: #13231A;
+  --ink-2: #44594B;
+  --rule: #BCCABA;
+  --rule-2: #8CA38F;
+  --red: #B3261E;
+  --pos: #1E6B3E;
+  --on-ink: #F6F9F3;
+  --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0D1611; --sheet: #14211A; --sel: #1E3327; --ink: #E1EBDD; --ink-2: #9DB2A2;
+    --rule: #273A2E; --rule-2: #466050; --red: #FF8D7B; --pos: #7ED49B; --on-ink: #0D1611;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0D1611; --sheet: #14211A; --sel: #1E3327; --ink: #E1EBDD; --ink-2: #9DB2A2;
+  --rule: #273A2E; --rule-2: #466050; --red: #FF8D7B; --pos: #7ED49B; --on-ink: #0D1611;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 1rem;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; }
+a { color: inherit; text-underline-offset: 0.2em; text-decoration-thickness: 1px; }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+::selection { background: var(--ink); color: var(--paper); }
+
+.wrap {
+  width: 100%;
+  max-width: 74rem;
+  margin-inline: auto;
+  padding-left: max(clamp(16px, 4vw, 40px), env(safe-area-inset-left, 0px));
+  padding-right: max(clamp(16px, 4vw, 40px), env(safe-area-inset-right, 0px));
+}
+
+/* top bar */
+.top { border-bottom: 1px solid var(--rule-2); }
+.top .wrap { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-block: 14px; }
+.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font-family: var(--display); font-weight: 700; font-stretch: 112%; font-size: 1.1rem; letter-spacing: -0.01em; }
+.mark { width: 22px; height: 22px; flex: none; }
+.mark rect { fill: currentColor; }
+.nav { display: flex; align-items: center; gap: clamp(12px, 2.4vw, 28px); font-family: var(--mono); font-size: 0.8125rem; }
+.nav a { text-decoration: none; padding: 6px 0; border-bottom: 1px solid transparent; }
+.nav a:hover { border-bottom-color: currentColor; }
+.theme { font: inherit; color: inherit; background: none; border: 1px solid var(--rule-2); padding: 5px 10px; cursor: pointer; }
+.theme:hover { background: var(--sel); }
+
+/* hero */
+.hero { padding-block: clamp(36px, 6vw, 80px) clamp(44px, 6vw, 92px); }
+.hero .wrap { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: clamp(28px, 4.5vw, 64px); align-items: start; }
+.eyebrow { font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 18px; }
+h1 { font-weight: 800; font-stretch: 108%; font-size: clamp(2.2rem, 4.5vw, 3.55rem); line-height: 1.03; letter-spacing: -0.02em; }
+.lede { font-size: 1.125rem; max-width: 34rem; margin: 22px 0 0; }
+.cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+.btn { font-family: var(--mono); font-size: 0.875rem; font-weight: 500; text-decoration: none; padding: 12px 18px; border: 1px solid var(--ink); display: inline-flex; align-items: center; gap: 10px; }
+.btn.primary { background: var(--ink); color: var(--on-ink); }
+.btn.primary:hover { opacity: 0.88; }
+.btn.ghost:hover { background: var(--sel); }
+.facts { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 30px 0 0; padding: 0; list-style: none; font-family: var(--mono); font-size: 0.78rem; color: var(--ink-2); }
+.facts li::before { content: ""; display: inline-block; width: 0.5em; height: 0.5em; background: var(--pos); margin-right: 0.6em; vertical-align: 0.05em; }
+
+/* the ledger */
+.ledger { background: var(--sheet); border: 1px solid var(--rule-2); box-shadow: 7px 7px 0 var(--rule); min-width: 0; }
+.lg-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; padding: 12px 16px; border-bottom: 1px solid var(--rule-2); font-family: var(--mono); font-size: 0.75rem; color: var(--ink-2); }
+.lg-head .ask { color: var(--ink); overflow-wrap: anywhere; }
+.lg-head .ask::before { content: "\203A"; margin-right: 0.55em; color: var(--ink-2); }
+.lg-body { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); }
+.lg-list { border-right: 1px solid var(--rule-2); display: flex; flex-direction: column; min-width: 0; }
+.lg-item {
+  font: inherit; color: inherit; background: none; border: 0; border-bottom: 1px solid var(--rule);
+  text-align: left; cursor: pointer; width: 100%; padding: 12px 14px;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 12px; align-items: start;
+}
+.lg-item:last-child { border-bottom: 0; }
+.lg-item:hover { background: var(--sel); }
+.lg-item[aria-selected="true"] { background: var(--sel); }
+.lg-item .ref { font-family: var(--mono); font-size: 0.72rem; color: var(--ink-2); grid-column: 1; }
+.lg-item .pts { grid-column: 2; grid-row: 1 / span 2; font-family: var(--mono); font-weight: 600; font-size: 1rem; font-variant-numeric: tabular-nums; border: 1px solid transparent; padding: 1px 6px; }
+.lg-item[aria-selected="true"] .pts { border-color: var(--ink); }
+.lg-item .ttl { grid-column: 1; font-size: 0.875rem; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.lg-detail { padding: 16px 18px 20px; min-width: 0; }
+.d-ref { font-family: var(--mono); font-size: 0.75rem; color: var(--ink-2); }
+.d-ttl { font-family: var(--body); font-weight: 600; font-size: 1rem; line-height: 1.35; margin: 4px 0 16px; overflow-wrap: anywhere; text-wrap: pretty; }
+.entries { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+.entries th { font-family: var(--mono); font-weight: 500; font-size: 0.6875rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-2); text-align: left; padding: 0 0 6px; border-bottom: 1px solid var(--ink); }
+.entries th:nth-child(n+2) { text-align: right; padding-left: 12px; }
+.entries td { padding: 7px 0; border-bottom: 1px solid var(--rule); vertical-align: top; overflow-wrap: anywhere; }
+.entries td:nth-child(n+2) { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; padding-left: 12px; }
+.entries td.neg { color: var(--red); }
+.entries td.bal { color: var(--ink-2); }
+.entries tfoot td { border-bottom: 0; padding-top: 14px; vertical-align: baseline; }
+.entries tfoot td:first-child { font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; }
+.total { display: inline-block; font-family: var(--mono); font-weight: 600; font-size: 1.6rem; line-height: 1.1; padding: 0 0 2px 10px; border-bottom: 4px double var(--ink); }
+.entries.anim tbody tr { animation: rowin 0.34s ease both; animation-delay: calc(var(--i) * 55ms); }
+@keyframes rowin { from { opacity: 0; transform: translateY(5px); } }
+.d-note { margin: 16px 0 0; font-size: 0.875rem; color: var(--ink-2); text-wrap: pretty; }
+.d-note b { font-family: var(--mono); font-weight: 500; font-size: 0.6875rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink); margin-right: 8px; }
+.lg-foot { border-top: 1px solid var(--rule-2); padding: 10px 16px; font-family: var(--mono); font-size: 0.6875rem; line-height: 1.5; color: var(--ink-2); }
+
+/* sections */
+section { border-top: 1px solid var(--rule-2); padding-block: clamp(44px, 6.5vw, 96px); }
+.split { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: clamp(28px, 4.5vw, 64px); align-items: start; }
+.split > * { min-width: 0; }
+h2 { font-weight: 800; font-stretch: 108%; font-size: clamp(1.65rem, 3vw, 2.4rem); line-height: 1.08; letter-spacing: -0.015em; }
+.intro { margin: 18px 0 0; max-width: 28rem; color: var(--ink-2); text-wrap: pretty; }
+.intro a { color: var(--ink); }
+
+.rates { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px clamp(20px, 3vw, 40px); }
+.rate { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.rate caption { font-family: var(--mono); font-size: 0.6875rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-2); text-align: left; padding-bottom: 8px; border-bottom: 1px solid var(--ink); }
+.rate td { padding: 8px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+.rate td:last-child { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; padding-left: 12px; }
+.rate.neg td:last-child { color: var(--red); }
+.fine { margin: 14px 0 0; font-size: 0.8125rem; color: var(--ink-2); }
+.modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; margin-top: 40px; padding-top: 24px; border-top: 1px solid var(--rule); }
+.modes h3 { font-family: var(--mono); font-size: 0.8125rem; font-weight: 600; }
+.modes p { margin: 6px 0 0; font-size: 0.9rem; color: var(--ink-2); }
+
+.tool { display: grid; grid-template-columns: minmax(0, 13rem) minmax(0, 1fr); gap: 8px 28px; padding: 20px 0; border-bottom: 1px solid var(--rule); }
+.tool:first-child { border-top: 1px solid var(--ink); }
+.tool code { font-family: var(--mono); font-weight: 600; font-size: 0.9rem; overflow-wrap: anywhere; }
+.tool .q { font-family: var(--mono); font-size: 0.8125rem; color: var(--ink-2); margin: 0 0 6px; }
+.tool .q::before { content: "\203A\00a0"; }
+.tool p { margin: 0; }
+
+.tabs { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--ink); }
+.tab { font-family: var(--mono); font-size: 0.8125rem; font-weight: 500; background: none; color: var(--ink-2); border: 1px solid transparent; border-bottom: 0; padding: 10px 14px; cursor: pointer; margin-bottom: -1px; }
+.tab:hover { color: var(--ink); }
+.tab[aria-selected="true"] { color: var(--ink); background: var(--sheet); border-color: var(--ink); }
+.panel { background: var(--sheet); border: 1px solid var(--ink); border-top: 0; padding: clamp(16px, 3vw, 24px); }
+.panel ol { margin: 0; padding-left: 1.2em; display: grid; gap: 8px; }
+.panel p { margin: 12px 0 0; }
+.note { font-size: 0.875rem; color: var(--ink-2); }
+.codebox { position: relative; margin: 14px 0 0; }
+pre.code { margin: 0; background: var(--paper); border: 1px solid var(--rule-2); padding: 14px 84px 14px 14px; overflow-x: auto; font-family: var(--mono); font-size: 0.8125rem; line-height: 1.55; white-space: pre; tab-size: 2; }
+.copy { position: absolute; top: 8px; right: 8px; font-family: var(--mono); font-size: 0.6875rem; background: var(--sheet); color: var(--ink); border: 1px solid var(--ink); padding: 5px 9px; cursor: pointer; }
+.copy:hover { background: var(--sel); }
+.steps { margin: 24px 0 0; padding-left: 1.3em; display: grid; gap: 10px; max-width: 28rem; color: var(--ink-2); }
+.steps li::marker { font-family: var(--mono); color: var(--ink); }
+.steps strong { color: var(--ink); font-weight: 600; }
+.askbox { margin-top: 28px; }
+.askbox h3 { font-family: var(--mono); font-size: 0.75rem; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-2); }
+
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 32px clamp(20px, 3vw, 40px); }
+.grid2 h3 { font-weight: 700; font-stretch: 105%; font-size: 1.05rem; padding-top: 12px; border-top: 1px solid var(--ink); }
+.grid2 p { margin: 8px 0 0; color: var(--ink-2); font-size: 0.95rem; text-wrap: pretty; }
+
+.prose p { margin: 0 0 14px; max-width: 38rem; text-wrap: pretty; }
+.scale { margin: 28px 0 24px; max-width: 34rem; }
+.sc-val { position: relative; height: 26px; font-family: var(--mono); font-weight: 600; font-size: 1.15rem; }
+.sc-val span { position: absolute; left: 64%; transform: translateX(-50%); }
+.sc-track { position: relative; height: 14px; border-top: 1px solid var(--ink); }
+.sc-range { position: absolute; top: 0; left: 46%; width: 34%; height: 14px; background: var(--sel); border-left: 1px solid var(--rule-2); border-right: 1px solid var(--rule-2); }
+.sc-mark { position: absolute; top: -9px; left: 64%; width: 3px; height: 32px; margin-left: -1.5px; background: var(--ink); }
+.sc-tick { position: absolute; top: 0; width: 1px; height: 8px; background: var(--ink); }
+.sc-labels { position: relative; height: 22px; font-family: var(--mono); font-size: 0.75rem; color: var(--ink-2); }
+.sc-labels span { position: absolute; top: 6px; white-space: nowrap; }
+.scale figcaption { font-size: 0.8125rem; color: var(--ink-2); margin-top: 4px; }
+.tested { margin: 4px 0 18px; padding: 0; list-style: none; display: grid; gap: 6px; max-width: 38rem; }
+.tested li { padding-left: 1.2em; position: relative; }
+.tested li::before { content: ""; position: absolute; left: 0; top: 0.62em; width: 0.5em; height: 0.5em; background: var(--rule-2); }
+.link-out { font-family: var(--mono); font-size: 0.875rem; }
+
+footer { border-top: 1px solid var(--rule-2); padding-block: 28px 44px; font-family: var(--mono); font-size: 0.8125rem; color: var(--ink-2); }
+footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px 28px; }
+footer nav { display: flex; flex-wrap: wrap; gap: 8px 20px; }
+footer a { color: var(--ink); }
+
+@media (max-width: 900px) {
+  .hero .wrap, .split { grid-template-columns: minmax(0, 1fr); }
+  .nav .opt { display: none; }
+}
+@media (max-width: 640px) {
+  .lg-body { grid-template-columns: minmax(0, 1fr); }
+  .lg-list { border-right: 0; border-bottom: 1px solid var(--rule-2); }
+  .rates, .grid2, .modes { grid-template-columns: minmax(0, 1fr); }
+  .tool { grid-template-columns: minmax(0, 1fr); }
+  .ledger { box-shadow: 4px 4px 0 var(--rule); }
+  pre.code { padding-right: 14px; padding-top: 40px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="IssueWatcher, top of page">
+      <svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="20" height="3.2"/><rect x="2" y="10.4" width="14" height="3.2" opacity="0.62"/><rect x="2" y="16.8" width="8" height="3.2" opacity="0.34"/></svg>
+      IssueWatcher
+    </a>
+    <nav class="nav" aria-label="Page sections">
+      <a class="opt" href="#scoring">Scoring</a>
+      <a class="opt" href="#tools">Tools</a>
+      <a class="opt" href="#install">Install</a>
+      <a class="opt" href="#safety">Safety</a>
+      <a class="opt" href="#status">Status</a>
+      <a href="https://github.com/mac146/IssueWatcher">GitHub</a>
+      <button class="theme" id="theme" type="button" aria-label="Switch between light and dark">Dark</button>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+  <section class="hero" style="border-top:0">
+    <div class="wrap">
+      <div>
+        <p class="eyebrow">MCP server for GitHub issues</p>
+        <h1>The GitHub issues worth your day, with every point itemized.</h1>
+        <p class="lede">Ask your AI assistant what to work on today. IssueWatcher ranks fresh issues from the repos you starred and the libraries your projects depend on, then shows how each score adds up.</p>
+        <div class="cta">
+          <a class="btn primary" href="#install">Install in two minutes</a>
+          <a class="btn ghost" href="https://github.com/mac146/IssueWatcher">View on GitHub</a>
+        </div>
+        <ul class="facts">
+          <li>Read-only</li>
+          <li>One GitHub token, no AI key</li>
+          <li>MIT licensed</li>
+          <li>v0.2.5</li>
+        </ul>
+      </div>
+
+      <div class="ledger" aria-label="A real ranking, with the score for each issue itemized">
+        <div class="lg-head">
+          <span class="ask">What GitHub issues should I work on today?</span>
+          <span>an excerpt of a real run</span>
+        </div>
+        <div class="lg-body">
+          <div class="lg-list" id="lg-list" role="tablist" aria-label="Ranked issues" aria-orientation="vertical"></div>
+          <div class="lg-detail" id="lg-detail" role="tabpanel" aria-live="polite"><noscript><p class="d-note">The ledger needs JavaScript. The scoring rules are listed below.</p></noscript></div>
+        </div>
+        <div class="lg-foot">Run on the author's account, 3 Nov 2026: 49 repos checked, 93 matching issues from the last 7 days, 6 shown. Scores use the day's date, so they move as issues age. Mode: both.</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="scoring">
+    <div class="wrap split">
+      <div>
+        <p class="eyebrow">Scoring</p>
+        <h2>Every score is a short sum.</h2>
+        <p class="intro">The ranking is plain rules you can read. Each answer carries the lines that applied, so you can disagree with one line and still use the rest. Your assistant does the thinking with its own model. IssueWatcher never calls one.</p>
+      </div>
+      <div>
+        <div class="rates">
+          <table class="rate">
+            <caption>Adds</caption>
+            <tbody>
+              <tr><td>You depend on it at runtime</td><td>+40</td></tr>
+              <tr><td>A repo you starred</td><td>+30</td></tr>
+              <tr><td>Mentions the version you use</td><td>+25</td></tr>
+              <tr><td>Title says crash, regression or CVE</td><td>+20</td></tr>
+              <tr><td>Labelled good first issue</td><td>+20</td></tr>
+              <tr><td>Opened in the last 48 hours</td><td>+10</td></tr>
+              <tr><td>Unassigned</td><td>+10</td></tr>
+              <tr><td>Has reproduction steps</td><td>+5</td></tr>
+            </tbody>
+          </table>
+          <table class="rate neg">
+            <caption>Deducts</caption>
+            <tbody>
+              <tr><td>Already assigned</td><td>&minus;25</td></tr>
+              <tr><td>Vague title, like &ldquo;Report a bug&rdquo;</td><td>&minus;20</td></tr>
+              <tr><td>A team is already on it</td><td>&minus;20</td></tr>
+              <tr><td>A fix is already planned or open</td><td>&minus;15</td></tr>
+              <tr><td>Maintainer chore: CI, releases, bots</td><td>&minus;15</td></tr>
+              <tr><td>Title is about a newer major than yours</td><td>&minus;15</td></tr>
+              <tr><td>Open 14 days, no reply, no taker</td><td>&minus;10</td></tr>
+              <tr><td>Feature request nobody has answered</td><td>&minus;10</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="fine">Values for the default mode, as of version 0.2.5. Some lines apply only in one mode, and the total is held between 0 and 100.</p>
+        <div class="modes">
+          <div><h3>contributor</h3><p>What could I pick up and fix? Unassigned, fresh and not already claimed.</p></div>
+          <div><h3>consumer</h3><p>What could break my projects? Issues in libraries you use, matched to your versions.</p></div>
+          <div><h3>both</h3><p>A mix of the two. This is the default.</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tools">
+    <div class="wrap split">
+      <div>
+        <p class="eyebrow">Tools</p>
+        <h2>Three tools. All read-only.</h2>
+        <p class="intro">Ask in plain words. Your assistant picks the tool and reads the result to you.</p>
+      </div>
+      <div>
+        <div class="tool">
+          <div><code>get_ranked_issues</code></div>
+          <div>
+            <p class="q">What GitHub issues should I work on today?</p>
+            <p>Ranks recent issues across your starred repos and your dependencies. Choose the mode, a window of up to 30 days, a minimum score, or only certain repos.</p>
+          </div>
+        </div>
+        <div class="tool">
+          <div><code>explain_issue</code></div>
+          <div>
+            <p class="q">Why did you rank the first one so high?</p>
+            <p>Lists every signal with its points and how the issue relates to your repos. A short excerpt of the issue text comes only when you ask, and is labelled as untrusted.</p>
+          </div>
+        </div>
+        <div class="tool">
+          <div><code>list_watched_repos</code></div>
+          <div>
+            <p class="q">What repos are you watching for me?</p>
+            <p>Shows the repos you starred and the source repos of the libraries your projects use, with which of your projects use which.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="install">
+    <div class="wrap split">
+      <div>
+        <p class="eyebrow">Install</p>
+        <h2>Install in about two minutes.</h2>
+        <p class="intro">You need one GitHub token with read-only access. No AI key and no account.</p>
+        <ol class="steps">
+          <li><strong>Create a token.</strong> Open <a href="https://github.com/settings/personal-access-tokens/new">the fine-grained token page</a>, name it IssueWatcher, and choose public repositories, read-only. To include dependencies from your private repos, select them and set Contents to read-only.</li>
+          <li><strong>Add IssueWatcher</strong> to your AI app, using the tabs.</li>
+          <li><strong>Ask a question</strong> from the box below the tabs.</li>
+        </ol>
+        <p class="intro">Treat the token like a password. Never paste it into a chat.</p>
+      </div>
+      <div>
+        <div class="tabs" role="tablist" aria-label="Choose your AI app">
+          <button class="tab" role="tab" id="t-desktop" aria-selected="true" aria-controls="p-desktop" type="button">Claude Desktop</button>
+          <button class="tab" role="tab" id="t-code" aria-selected="false" aria-controls="p-code" tabindex="-1" type="button">Claude Code</button>
+          <button class="tab" role="tab" id="t-cursor" aria-selected="false" aria-controls="p-cursor" tabindex="-1" type="button">Cursor</button>
+        </div>
+        <div class="panel" role="tabpanel" id="p-desktop" aria-labelledby="t-desktop">
+          <ol>
+            <li>Download <strong>issuewatcher-0.2.5.mcpb</strong> from the <a href="https://github.com/mac146/IssueWatcher/releases/latest">latest release</a>.</li>
+            <li>Open the file. Claude Desktop asks for your token and keeps it in the system keychain.</li>
+            <li>Turn the extension on and start a new chat.</li>
+          </ol>
+          <p class="note">One click, and nothing else to install.</p>
+        </div>
+        <div class="panel" role="tabpanel" id="p-code" aria-labelledby="t-code" hidden>
+          <p style="margin-top:0">Run this once, then start <code>claude</code> in the same folder.</p>
+          <div class="codebox">
+            <pre class="code"><code>claude mcp add issuewatcher -e GITHUB_TOKEN=github_pat_xxxxxxxx -- npx -y issuewatcher-mcp</code></pre>
+            <button class="copy" type="button">Copy</button>
+          </div>
+          <p class="note">In Windows PowerShell, put the double dash in quotes: <code>'--'</code>. For a start that takes under a second, run <code>npm install -g issuewatcher-mcp</code> once and use <code>issuewatcher-mcp</code> in place of <code>npx -y issuewatcher-mcp</code>.</p>
+        </div>
+        <div class="panel" role="tabpanel" id="p-cursor" aria-labelledby="t-cursor" hidden>
+          <p style="margin-top:0">Add this to <code>~/.cursor/mcp.json</code>.</p>
+          <div class="codebox">
+            <pre class="code"><code>{
+  "mcpServers": {
+    "issuewatcher": {
+      "command": "npx",
+      "args": ["-y", "issuewatcher-mcp"],
+      "env": { "GITHUB_TOKEN": "github_pat_xxxxxxxx" }
+    }
+  }
+}</code></pre>
+            <button class="copy" type="button">Copy</button>
+          </div>
+          <p class="note">VS Code, Windsurf, Zed and others work the same way. See the <a href="https://github.com/mac146/IssueWatcher/blob/main/docs/MCP.md">setup guide</a>.</p>
+        </div>
+
+        <div class="askbox">
+          <h3>Then ask</h3>
+          <div class="codebox">
+            <pre class="code"><code>What GitHub issues should I work on today?</code></pre>
+            <button class="copy" type="button">Copy</button>
+          </div>
+          <p class="note">If your app answers with general advice, add &ldquo;use IssueWatcher&rdquo; to the question.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="safety">
+    <div class="wrap split">
+      <div>
+        <p class="eyebrow">Safety</p>
+        <h2>What it can and cannot touch.</h2>
+      </div>
+      <div class="grid2">
+        <div>
+          <h3>Read-only</h3>
+          <p>No tool can comment on, assign, label or change anything on GitHub. The token you give it can be read-only too.</p>
+        </div>
+        <div>
+          <h3>Your token stays on your computer</h3>
+          <p>It goes to GitHub and nowhere else. It never appears in logs or in answers.</p>
+        </div>
+        <div>
+          <h3>No telemetry</h3>
+          <p>IssueWatcher sends nothing to its author. It talks to api.github.com, and to the npm and PyPI registries to find where your dependencies live.</p>
+        </div>
+        <div>
+          <h3>Strangers write issues</h3>
+          <p>A malicious issue could try to steer an AI. IssueWatcher strips hidden characters, link targets and markup, caps lengths, and leaves issue bodies out unless you ask for a labelled excerpt. That lowers the risk and cannot remove it.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="status">
+    <div class="wrap split">
+      <div>
+        <p class="eyebrow">Status</p>
+        <h2>Early, and checked in small ways.</h2>
+      </div>
+      <div class="prose">
+        <p>Version 0.2.5. The ranking is hand-written rules, tuned by reading real results.</p>
+        <p>First check: 99 real issues from one developer's watch list were labelled useful or noise by a model, with the scores hidden. IssueWatcher's ranking separates the two with an AUC of 0.82, where 1.0 is perfect and 0.5 is chance.</p>
+        <figure class="scale" role="img" aria-label="AUC 0.82, with a range from 0.73 to 0.90, on a scale from 0.5 (chance) to 1.0 (perfect)">
+          <div class="sc-val"><span>0.82</span></div>
+          <div class="sc-track">
+            <span class="sc-range"></span>
+            <span class="sc-mark"></span>
+            <i class="sc-tick" style="left:0"></i>
+            <i class="sc-tick" style="left:50%"></i>
+            <i class="sc-tick" style="left:calc(100% - 1px)"></i>
+          </div>
+          <div class="sc-labels">
+            <span style="left:0">0.5 chance</span>
+            <span style="left:50%;transform:translateX(-50%)">0.75</span>
+            <span style="right:0">1.0 perfect</span>
+          </div>
+          <figcaption>Shaded band: 0.73 to 0.90, from resampling the 99 issues.</figcaption>
+        </figure>
+        <p>That is a first look, not proof. The band is wide because there are only 99 issues. Whether the top 10 beats newest-first is not established, and no people have labelled yet.</p>
+        <ul class="tested">
+          <li>Used by hand on Windows with Node 22, in Claude Desktop and Claude Code.</li>
+          <li>The test suite also runs on Linux in CI.</li>
+          <li>Cursor, VS Code and macOS are untested.</li>
+        </ul>
+        <p><a class="link-out" href="https://github.com/mac146/IssueWatcher/issues">If a ranking looks wrong, open an issue with the issue number and what you expected.</a></p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>IssueWatcher is MIT licensed. Made by mac146.</span>
+    <nav aria-label="Links">
+      <a href="https://github.com/mac146/IssueWatcher">GitHub</a>
+      <a href="https://www.npmjs.com/package/issuewatcher-mcp">npm</a>
+      <a href="https://github.com/mac146/IssueWatcher/releases/latest">Releases</a>
+      <a href="https://github.com/mac146/IssueWatcher/blob/main/docs/MCP.md">Setup guide</a>
+      <a href="https://github.com/mac146/IssueWatcher/blob/main/docs/PRIVACY.md">Privacy</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+(function () {
+  // A real run (3 Nov 2026). Each line is a signal the scorer applied; the lines sum to the score.
+  var E = [
+    { repo: "brianc/node-postgres", n: 3842, score: 90,
+      title: "An authentication request pg-protocol does not support (GSSAPI, SSPI) crashes the process instead of failing connect()",
+      url: "https://github.com/brianc/node-postgres/issues/3842",
+      lines: [["you depend on pg (^8.16.3)", 40], ["mentions v8, you use ^8.16.3", 5], ["title says “crashes”", 20], ["unassigned", 10], ["opened this week", 5], ["few comments", 5], ["has reproduction details", 5]],
+      note: "A crash in a library you run, with nobody assigned. The dependency line and the crash word make up two thirds of the score." },
+    { repo: "brianc/node-postgres", n: 3839, score: 90,
+      title: "pg-cursor type parser exceptions escape read error handling and crash Node",
+      url: "https://github.com/brianc/node-postgres/issues/3839",
+      lines: [["you depend on pg (^8.16.3)", 40], ["mentions v8, you use ^8.16.3", 5], ["title says “crash”", 20], ["unassigned", 10], ["opened this week", 5], ["few comments", 5], ["has reproduction details", 5]],
+      note: "Same library and the same lines, so the same score. Whether it applies to you depends on whether you use cursors, which the score cannot know." },
+    { repo: "eigent-ai/eigent", n: 2116, score: 75,
+      title: "[BUG] grep_files crashes on quoted numeric arguments: FunctionTool coercion skips primitive annotations, and the wrapped error names no parameter so the model cannot self-correct",
+      url: "https://github.com/eigent-ai/eigent/issues/2116",
+      lines: [["starred repo", 30], ["title says “crashes”", 20], ["unassigned", 10], ["opened this week", 5], ["few comments", 5], ["has reproduction details", 5]],
+      note: "A repo you starred earns the star bonus instead of the dependency points, so it lands below the pg crashes." },
+    { repo: "brianc/node-postgres", n: 3841, score: 70,
+      title: "Client treats a ReadyForQuery before any authentication message as a connected session",
+      url: "https://github.com/brianc/node-postgres/issues/3841",
+      lines: [["you depend on pg (^8.16.3)", 40], ["mentions v8, you use ^8.16.3", 5], ["unassigned", 10], ["opened this week", 5], ["few comments", 5], ["has reproduction details", 5]],
+      note: "No crash or regression word in the title, so it sits 20 points under #3842." },
+    { repo: "typestack/class-validator", n: 2696, score: 65,
+      title: "fix: Length error message counts surrogate pairs differently from validation",
+      url: "https://github.com/typestack/class-validator/issues/2696",
+      lines: [["you depend on class-validator (^0.14.3)", 40], ["unassigned", 10], ["opened this week", 5], ["few comments", 5], ["has reproduction details", 5]],
+      note: "A dependency issue with nothing severe in the title, so it lands in the middle of the list." },
+    { repo: "typeorm/typeorm", n: 13021, score: 55,
+      title: "relationLoadStrategy 'query' returns one-to-many relations empty on SQL Server: duplicated select aliases in the relation-id query (1.x regression)",
+      url: "https://github.com/typeorm/typeorm/issues/13021",
+      lines: [["you depend on typeorm (^0.3.28)", 40], ["title is about v1, you use ^0.3.28", -15], ["title says “regression”", 20], ["unassigned", 10], ["opened this week", 5], ["a fix is already planned or open", -15], ["few comments", 5], ["has reproduction details", 5]],
+      note: "A regression in TypeORM 1.x, and this project runs 0.3. It loses 15 points for being about a newer major and 15 more because a fix is already planned. It still shows up, lower." }
+  ];
+
+  var list = document.getElementById("lg-list");
+  var detail = document.getElementById("lg-detail");
+  var cur = 0;
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+  function signed(n) { return n < 0 ? "−" + Math.abs(n) : "+" + n; }
+
+  function renderList() {
+    list.innerHTML = E.map(function (e, i) {
+      return '<button class="lg-item" type="button" role="tab" id="lg-tab-' + i + '" aria-selected="' + (i === cur) + '" aria-controls="lg-detail" tabindex="' + (i === cur ? 0 : -1) + '" data-i="' + i + '">' +
+        '<span class="ref">' + esc(e.repo.split("/")[1]) + " #" + e.n + "</span>" +
+        '<span class="pts">' + e.score + "</span>" +
+        '<span class="ttl">' + esc(e.title) + "</span></button>";
+    }).join("");
+  }
+
+  function renderDetail(animate) {
+    var e = E[cur], bal = 0;
+    var rows = e.lines.map(function (l, i) {
+      bal += l[1];
+      return '<tr style="--i:' + i + '"><td>' + esc(cap(l[0])) + '</td><td class="' + (l[1] < 0 ? "neg" : "") + '">' + signed(l[1]) + '</td><td class="bal">' + bal + "</td></tr>";
+    }).join("");
+    detail.setAttribute("aria-labelledby", "lg-tab-" + cur);
+    detail.innerHTML =
+      '<div class="d-ref"><a href="' + e.url + '">' + esc(e.repo) + " #" + e.n + "</a></div>" +
+      '<h3 class="d-ttl">' + esc(e.title) + "</h3>" +
+      '<table class="entries' + (animate ? " anim" : "") + '"><thead><tr><th scope="col">Line</th><th scope="col">Points</th><th scope="col">Balance</th></tr></thead>' +
+      "<tbody>" + rows + '</tbody><tfoot><tr><td colspan="2">Score</td><td><span class="total">' + bal + "</span></td></tr></tfoot></table>" +
+      '<p class="d-note"><b>Reading it</b>' + esc(e.note) + "</p>";
+  }
+
+  function select(i, focus) {
+    cur = (i + E.length) % E.length;
+    renderList();
+    renderDetail(true);
+    if (focus) { var b = document.getElementById("lg-tab-" + cur); if (b) b.focus(); }
+  }
+
+  list.addEventListener("click", function (ev) {
+    var b = ev.target.closest(".lg-item");
+    if (b) select(Number(b.getAttribute("data-i")), false);
+  });
+  list.addEventListener("keydown", function (ev) {
+    if (ev.key === "ArrowDown" || ev.key === "ArrowRight") { ev.preventDefault(); select(cur + 1, true); }
+    else if (ev.key === "ArrowUp" || ev.key === "ArrowLeft") { ev.preventDefault(); select(cur - 1, true); }
+    else if (ev.key === "Home") { ev.preventDefault(); select(0, true); }
+    else if (ev.key === "End") { ev.preventDefault(); select(E.length - 1, true); }
+  });
+
+  renderList();
+  renderDetail(false);
+
+  // Install tabs
+  var tabs = Array.prototype.slice.call(document.querySelectorAll(".tabs .tab"));
+  function showTab(t, focus) {
+    tabs.forEach(function (x) {
+      var on = x === t;
+      x.setAttribute("aria-selected", on ? "true" : "false");
+      x.tabIndex = on ? 0 : -1;
+      document.getElementById(x.getAttribute("aria-controls")).hidden = !on;
+    });
+    if (focus) t.focus();
+  }
+  tabs.forEach(function (t, i) {
+    t.addEventListener("click", function () { showTab(t, false); });
+    t.addEventListener("keydown", function (ev) {
+      if (ev.key === "ArrowRight") { ev.preventDefault(); showTab(tabs[(i + 1) % tabs.length], true); }
+      else if (ev.key === "ArrowLeft") { ev.preventDefault(); showTab(tabs[(i + tabs.length - 1) % tabs.length], true); }
+    });
+  });
+
+  // Copy buttons: the clipboard may be refused, so fall back to selecting the text.
+  function flash(b, text) {
+    var old = b.getAttribute("data-label") || b.textContent;
+    b.setAttribute("data-label", old);
+    b.textContent = text;
+    setTimeout(function () { b.textContent = old; }, 1500);
+  }
+  function selectText(b) {
+    var code = b.parentElement.querySelector("code");
+    if (!code) return;
+    var r = document.createRange();
+    r.selectNodeContents(code);
+    var s = window.getSelection();
+    s.removeAllRanges();
+    s.addRange(r);
+  }
+  document.addEventListener("click", function (ev) {
+    var b = ev.target.closest(".copy");
+    if (!b) return;
+    var code = b.parentElement.querySelector("code");
+    var text = code ? code.textContent : "";
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { flash(b, "Copied"); }, function () { selectText(b); flash(b, "Press Ctrl+C"); });
+    } else { selectText(b); flash(b, "Press Ctrl+C"); }
+  });
+
+  // Theme toggle: starts from the system setting, and remembers a choice when storage works.
+  var root = document.documentElement;
+  var btn = document.getElementById("theme");
+  var mq = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+  function effective() { var t = root.getAttribute("data-theme"); if (t) return t; return mq && mq.matches ? "dark" : "light"; }
+  function label() { btn.textContent = effective() === "dark" ? "Light" : "Dark"; }
+  try { var saved = localStorage.getItem("iw-theme"); if (saved === "dark" || saved === "light") root.setAttribute("data-theme", saved); } catch (e) {}
+  btn.addEventListener("click", function () {
+    var next = effective() === "dark" ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    try { localStorage.setItem("iw-theme", next); } catch (e) {}
+    label();
+  });
+  if (mq && mq.addEventListener) mq.addEventListener("change", label);
+  label();
+})();
+</script>
+</body>
+</html>
